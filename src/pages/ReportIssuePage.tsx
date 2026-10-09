@@ -36,7 +36,7 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<ComplaintCategory>('road_damage');
   const [address, setAddress] = useState('');
-  const [locality, setLocality] = useState('Central Metro');
+  const [locality, setLocality] = useState('');
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [safetyRisk, setSafetyRisk] = useState(false);
@@ -133,12 +133,6 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
       },
       (err) => {
         console.warn('Geolocation error:', err);
-        // Fallback demo coordinates
-        setLatitude(37.7749);
-        setLongitude(-122.4194);
-        if (!address) {
-          setAddress('Simulated GPS: Civic Center Plaza, Downtown');
-        }
         setLocating(false);
       },
       { timeout: 8000 }
@@ -154,11 +148,11 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
     setIsVerifying(true);
     try {
       const res = await api.verifyComplaint({
-        title: title.trim() || 'Civic infrastructure report',
-        description: description.trim() || 'Photo evidence verification',
+        title: title.trim(),
+        description: description.trim(),
         category,
-        address: address.trim() || 'Metro District',
-        locality,
+        address: address.trim(),
+        locality: locality.trim(),
         latitude,
         longitude,
         imageUrl: imgUrl,
