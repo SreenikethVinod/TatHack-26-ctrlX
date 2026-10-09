@@ -11,8 +11,12 @@ import { planningService } from './services/planningService.ts';
 import { evidenceService } from './services/evidenceService.ts';
 import { analyticsService } from './services/analyticsService.ts';
 import { authMiddleware, requireRole, resolveUserFromRequest } from './middleware/authMiddleware.ts';
+import { aiRouter } from '../ai-module/index.ts';
 
 export const apiRouter = Router();
+
+// Modular AI forensics & severity engine routes
+apiRouter.use('/ai', aiRouter);
 
 // Apply auth middleware to resolve request user
 apiRouter.use(authMiddleware);
