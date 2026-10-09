@@ -198,49 +198,64 @@ export const PitchModal: React.FC<Props> = ({ isOpen, onClose }) => {
           )}
 
           {activeTab === 'qa' && (
-            <div className="space-y-3">
-              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
-                <h4 className="font-semibold text-slate-900 text-sm">
-                  1. "Why not just use an existing 311 app or Google Form?"
+            <div className="space-y-3.5 max-h-[60vh] overflow-y-auto pr-2">
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs">1</span>
+                  <span>Why should the government migrate from their existing system to CivicPulse?</span>
                 </h4>
-                <p className="text-xs text-slate-600 mt-1">
-                  Existing 311 systems are infamous dead-ends where tickets disappear without accountability or before-and-after photo verification. CivicPulse provides a two-sided accountability loop: citizens see live progress and community endorsements, while officials get automated risk-weighted prioritization rather than first-in-first-out bottlenecks.
+                <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                  Existing portals (generic 311, CPGRAMS, paper registers) are <strong>black-hole ticket repositories</strong> where grievances stall indefinitely without statutory consequences. CivicPulse provides an <strong>enforceable 14-day statutory accountability chain</strong>: if the local municipality fails to acknowledge and fund a repair within 14 days, the engine automatically revokes jurisdiction and elevates the case to the District Magistrate/Collectorate with statutory audit logs. Additionally, CivicPulse replaces arbitrary First-In-First-Out queues with an explainable priority engine, eliminates duplicate contractor payouts via spatial deduplication, and tracks budgets in ₹ in real time.
                 </p>
               </div>
 
-              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
-                <h4 className="font-semibold text-slate-900 text-sm">
-                  2. "Is your priority recommendation really AI, or rule-based?"
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs">2</span>
+                  <span>If a person has a direct connection with an MLA, why should they approach the normal chain of process?</span>
                 </h4>
-                <p className="text-xs text-slate-600 mt-1">
-                  It is an explicit, explainable <strong>rule-based prioritization engine</strong>, not a black-box LLM. In civic governance, life-safety triage must be completely auditable, deterministic, and explainable to public ombudsmen. Officials can inspect the exact score breakdown and override it with signed justification.
+                <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                  Informal requests to an MLA or political representative cannot bypass physical governance: an MLA does not personally repair roads or unclog drains. They must pass requests down to municipal Junior Engineers. Without a registered work order in CivicPulse, there is <strong>no sanctioned budget code, no assigned repair crew, no materials requisition, and no legal SLA</strong>—requests get lost in endless WhatsApp messages and phone calls. Moreover, logging it on CivicPulse empowers the MLA: it provides verifiable before-and-after photo evidence of constituency work that they can showcase to voters, backed by collective community upvotes that legally justify emergency fund disbursement.
                 </p>
               </div>
 
-              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
-                <h4 className="font-semibold text-slate-900 text-sm">
-                  3. "How do you prevent spam, trolls, or fake complaints?"
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs">3</span>
+                  <span>Why shouldn't citizens just post on social media (X/Twitter, Facebook) instead of our website?</span>
                 </h4>
-                <p className="text-xs text-slate-600 mt-1">
-                  We enforce server-validated user authentication, browser geolocation pinning, deduplicated single-vote community endorsement constraints, and an official 'Rejected' status with required justification notes for fraudulent or out-of-scope reports.
+                <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                  Posting on social media carries <strong>zero statutory obligation</strong>. Social media accounts are handled by PR interns who reply with generic templates ("We have noted your issue"). Tweets lack structured geolocation, ticket numbers, or binding SLAs, and disappear from algorithms within 24 hours. In contrast, CivicPulse feeds directly into the <strong>operational workstations of municipal executive engineers</strong>, locks in an immutable SLA countdown, protects citizen privacy from public trolls, and triggers automatic higher-authority escalation if ignored.
                 </p>
               </div>
 
-              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
-                <h4 className="font-semibold text-slate-900 text-sm">
-                  4. "Can citizens see confidential government notes?"
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs">4</span>
+                  <span>What if the government doesn't address the issue even though they were aware of it months ago? How does CivicPulse help?</span>
                 </h4>
-                <p className="text-xs text-slate-600 mt-1">
-                  No. Our Express API backend enforces strict visibility boundaries at the database query layer (`visibility === 'public'`), ensuring internal worker safety warnings, contractor billing codes, and administrative notes never leak to citizen endpoints.
+                <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                  CivicPulse eliminates the bureaucratic excuse of "We were not aware." Every submission creates an immutable timestamp and a public <strong>"Days Aged / SLA Overdue"</strong> clock. On Day 14 of non-action, the system automatically triggers a <strong>District Executive Escalation</strong>, placing the complaint on the District Collector's high-priority docket where directives and emergency funds can be mandated. Because the audit log is public and tamper-proof, it serves as undeniable legal evidence for <strong>Right to Information (RTI) filings, High Court public interest litigations (PILs), Lokayukta ombudsman inquiries, and media accountability</strong>.
                 </p>
               </div>
 
-              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
-                <h4 className="font-semibold text-slate-900 text-sm">
-                  5. "How would you scale this past this 30-hour hackathon?"
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs">5</span>
+                  <span>Is your priority recommendation really AI, or rule-based?</span>
                 </h4>
-                <p className="text-xs text-slate-600 mt-1">
-                  The relational schema is already designed for zero-migration transition to PostgreSQL/Cloud SQL. Production additions include Open311 standard API connectors, automated reverse geocoding for exact street addresses, and SMS notification dispatch via Twilio.
+                <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                  It is an explicit, explainable <strong>rule-based prioritization engine</strong>, not an unpredictable black-box LLM. In public infrastructure, triage decisions must be completely transparent, deterministic, and defensible in audits. Officials inspect the exact scoring criteria (hazard severity, community endorsements, SLA aging, public safety risks) and can override it only with signed justification.
+                </p>
+              </div>
+
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs">6</span>
+                  <span>How do you prevent spam, fake reports, or duplicate claims?</span>
+                </h4>
+                <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                  We enforce GPS geolocation bounds, rate limits, single-vote community endorsement constraints, and an official 'Rejected' status with mandatory justification notes to block invalid claims while saving municipal funds from contractor fraud.
                 </p>
               </div>
             </div>

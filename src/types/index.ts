@@ -70,6 +70,24 @@ export interface Complaint {
   districtActionAt?: string | null;
   districtActionBy?: string | null;
   daysUnacknowledged?: number;
+  followersCount?: number;
+  isFollowing?: boolean;
+  mergedCount?: number;
+  isMerged?: boolean;
+  mergedWithReference?: string | null;
+}
+
+export interface NotificationItem {
+  id: string;
+  userId: string;
+  complaintId: string;
+  complaintReference: string;
+  complaintTitle: string;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
 }
 
 export interface ComplaintHistoryEntry {

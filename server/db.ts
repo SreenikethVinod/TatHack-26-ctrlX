@@ -6,6 +6,7 @@ import { calculatePriorityScore, PriorityLevel, ComplaintCategory } from './serv
 import { lifecycleService } from './services/lifecycleService.ts';
 import { analyticsService } from './services/analyticsService.ts';
 import { authService, AuthService, UserResponse, FrontendRole } from './services/authService.ts';
+import { haversineDistanceMeters } from './services/duplicateService.ts';
 
 // Auto-run migrations on load
 runMigrations(databaseConnection);
@@ -185,6 +186,30 @@ function formatComplaintRow(row: any): Complaint {
     districtActionAt: row.district_action_at || null,
     districtActionBy: row.district_action_by || null,
     daysUnacknowledged: row.acknowledged_at ? 0 : daysDiff,
+    followersCount: (() => {
+      try {
+        const f = databaseConnection.prepare('SELECT count(*) as c FROM complaint_followers WHERE complaint_id = ?').get(row.id) as any;
+        return Math.max(1, f?.c || 1);
+      } catch {
+        return 1;
+      }
+    })(),
+    isMerged: (() => {
+      try {
+        const d = databaseConnection.prepare('SELECT count(*) as c FROM complaint_duplicate_links WHERE canonical_complaint_id = ?').get(row.id) as any;
+        return (d?.c || 0) > 0;
+      } catch {
+        return false;
+      }
+    })(),
+    mergedCount: (() => {
+      try {
+        const d = databaseConnection.prepare('SELECT count(*) as c FROM complaint_duplicate_links WHERE canonical_complaint_id = ?').get(row.id) as any;
+        return d?.c || 0;
+      } catch {
+        return 0;
+      }
+    })(),
   };
 }
 
