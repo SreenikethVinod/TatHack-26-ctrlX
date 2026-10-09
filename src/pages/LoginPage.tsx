@@ -28,9 +28,15 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [activeRole, setActiveRole] = useState<RoleType>('citizen');
 
-  // Form states - starting empty for real user authentication
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const DEMO_CREDS: Record<RoleType, { email: string; pass: string }> = {
+    citizen: { email: 'citizen@civicpulse.org', pass: 'DemoPass123!' },
+    municipality: { email: 'municipality@civicpulse.org', pass: 'DemoPass123!' },
+    district: { email: 'district@civicpulse.org', pass: 'DemoPass123!' },
+  };
+
+  // Form states initialized with active role demo credentials
+  const [email, setEmail] = useState('citizen@civicpulse.org');
+  const [password, setPassword] = useState('DemoPass123!');
   const [name, setName] = useState('');
   const [department, setDepartment] = useState('Public Works & Roads');
   const [loading, setLoading] = useState(false);
@@ -86,6 +92,10 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
     setActiveRole(role);
     setErrorMsg(null);
     setSuccessMsg(null);
+    if (mode === 'login') {
+      setEmail(DEMO_CREDS[role].email);
+      setPassword(DEMO_CREDS[role].pass);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -250,15 +260,42 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
             <button
               type="button"
               onClick={() => {
-                setMode(mode === 'login' ? 'register' : 'login');
+                const nextMode = mode === 'login' ? 'register' : 'login';
+                setMode(nextMode);
                 setErrorMsg(null);
                 setSuccessMsg(null);
+                if (nextMode === 'login') {
+                  setEmail(DEMO_CREDS[activeRole].email);
+                  setPassword(DEMO_CREDS[activeRole].pass);
+                } else {
+                  setEmail('');
+                  setPassword('');
+                }
               }}
               className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition-colors cursor-pointer"
             >
               {mode === 'login' ? 'Need an account? Register' : 'Have an account? Log In'}
             </button>
           </div>
+
+          {mode === 'login' && (
+            <div className="flex items-center justify-between p-2.5 bg-indigo-50/70 border border-indigo-100 rounded-xl text-xs text-indigo-900">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-indigo-700">Preset Demo Account:</span>
+                <span className="font-mono text-[11px] text-slate-700">{DEMO_CREDS[activeRole].email}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail(DEMO_CREDS[activeRole].email);
+                  setPassword(DEMO_CREDS[activeRole].pass);
+                }}
+                className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
+              >
+                Auto-fill
+              </button>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'register' && (

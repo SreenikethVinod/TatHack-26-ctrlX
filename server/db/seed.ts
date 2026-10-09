@@ -534,6 +534,11 @@ export function ensureSystemConfig(database: Database.Database = db) {
       insertSla.run(id, p.category, p.priority, p.ack, p.action, now, now);
     }
   }
+
+  const userCount = database.prepare('SELECT count(*) as count FROM users').get() as { count: number };
+  if (userCount.count === 0) {
+    seedDatabase(database);
+  }
 }
 
 export function wipeDatabase(database: Database.Database = db) {
