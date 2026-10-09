@@ -416,6 +416,7 @@ function runHeuristicVerification(params: HeuristicParams): AIVerificationResult
     streetlights: ['light fixture luminaire', 'pole support', 'wiring junction'],
     water_supply: ['water conduit', 'valve leakage', 'surface pooling'],
     public_safety: ['hazard perimeter', 'exposed infrastructure', 'damaged guardrail'],
+    other: ['civic infrastructure', 'urban environment', 'public facility'],
   };
 
   const detectedObjects = detectedObjectsMap[category] || ['infrastructure asset'];

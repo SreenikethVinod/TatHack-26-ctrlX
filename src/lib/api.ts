@@ -163,6 +163,7 @@ export const api = {
     id: string,
     payload: {
       status: string;
+      reason?: string;
       publicUpdate?: string;
       resolutionSummary?: string;
       afterImageUrl?: string;
@@ -200,7 +201,7 @@ export const api = {
     });
   },
 
-  async voteComplaint(id: string): Promise<{ success: boolean; votesCount: number; message: string }> {
+  async voteComplaint(id: string): Promise<{ success: boolean; votesCount: number; hasUserVoted?: boolean; message: string }> {
     return request(`/complaints/${id}/votes`, {
       method: 'POST',
     });
@@ -223,9 +224,99 @@ export const api = {
     return request('/analytics');
   },
 
+  async register(payload: {
+    name: string;
+    email: string;
+    password: string;
+    role?: string;
+    department?: string;
+    locality?: string;
+  }): Promise<{ success: boolean; user: User; token: string }> {
+    const res = await request<{ success: boolean; user: User; token: string }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    if (res.user?.id) {
+      setApiUserId(res.user.id);
+      setApiToken(res.token);
+    }
+    return res;
+  },
+
+  async acknowledgeComplaint(id: string, notes?: string): Promise<{ success: boolean; complaint: Complaint; message: string }> {
+    return request(`/complaints/${id}/acknowledge`, {
+      method: 'POST',
+      body: JSON.stringify({ notes }),
+    });
+  },
+
+  async assignWorkerAndBudget(
+    id: string,
+    worker: string,
+    budget: number,
+    budgetNotes?: string
+  ): Promise<{ success: boolean; complaint: Complaint; message: string }> {
+    return request(`/complaints/${id}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ worker, budget, budgetNotes }),
+    });
+  },
+
+  async getDistrictEscalations(): Promise<{ success: boolean; escalations: Complaint[]; count: number; policyNote: string }> {
+    return request('/district/escalations');
+  },
+
+  async districtIntervene(
+    id: string,
+    payload: {
+      actionType: 'DIRECT_ASSIGN' | 'FORMAL_DIRECTIVE' | 'FORCE_ACKNOWLEDGE' | 'EMERGENCY_FUNDS';
+      directiveText: string;
+      worker?: string;
+      emergencyBudget?: number;
+    }
+  ): Promise<{ success: boolean; complaint: Complaint; message: string }> {
+    return request(`/complaints/${id}/district-action`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async simulateOverdueReport(payload?: {
+    title?: string;
+    description?: string;
+    category?: string;
+    address?: string;
+    daysAged?: number;
+  }): Promise<{ success: boolean; complaint: Complaint; message: string }> {
+    return request('/complaints/simulate-overdue', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    });
+  },
+
+  async ageComplaint(id: string, days: number = 15): Promise<{ success: boolean; complaint: Complaint; message: string }> {
+    return request(`/complaints/${id}/age`, {
+      method: 'POST',
+      body: JSON.stringify({ days }),
+    });
+  },
+
   async resetDemoData(): Promise<{ success: boolean; message: string; complaintsCount: number }> {
     return request('/reset-demo-data', {
       method: 'POST',
     });
+  },
+
+  async reverseGeocode(lat: number, lng: number): Promise<{
+    success: boolean;
+    address: string;
+    locality: string;
+    city: string;
+    displayName: string;
+    latitude: number;
+    longitude: number;
+    source: string;
+  }> {
+    return request(`/geocode/reverse?lat=${lat}&lng=${lng}`);
   },
 };

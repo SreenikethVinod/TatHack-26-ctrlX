@@ -4,9 +4,16 @@ export type ComplaintCategory =
   | 'drainage'
   | 'streetlights'
   | 'water_supply'
-  | 'public_safety';
+  | 'public_safety'
+  | 'other';
 
-export type ComplaintStatus = 'Submitted' | 'Acknowledged' | 'In Progress' | 'Resolved' | 'Rejected';
+export type ComplaintStatus =
+  | 'Submitted'
+  | 'Acknowledged'
+  | 'In Progress'
+  | 'Resolved'
+  | 'Rejected'
+  | 'Escalated to District Admin';
 
 export type PriorityLevel = 'Low' | 'Medium' | 'High' | 'Critical';
 
@@ -15,6 +22,7 @@ export interface User {
   name: string;
   email: string;
   role: 'citizen' | 'official' | 'admin';
+  systemRole?: string;
   department?: string;
   avatarUrl?: string;
   createdAt: string;
@@ -56,6 +64,7 @@ export interface Complaint {
   priorityRationale: string[];
   safetyRisk: boolean;
   assignedDepartment: string;
+  assignedOfficerId?: string | null;
   reporterId: string;
   reporterName: string;
   createdAt: string;
@@ -66,6 +75,20 @@ export interface Complaint {
   slaHours: number;
   hasUserVoted?: boolean;
   aiVerification?: AIVerificationResult;
+  ackDeadline?: string | null;
+  acknowledgedAt?: string | null;
+  acknowledgedBy?: string | null;
+  acknowledgedByName?: string | null;
+  assignedWorker?: string | null;
+  budget?: number;
+  budgetNotes?: string | null;
+  assignedAt?: string | null;
+  assignedByName?: string | null;
+  isEscalatedDistrict?: boolean;
+  districtActionNotes?: string | null;
+  districtActionAt?: string | null;
+  districtActionBy?: string | null;
+  daysUnacknowledged?: number;
 }
 
 export interface ComplaintHistoryEntry {
@@ -77,6 +100,7 @@ export interface ComplaintHistoryEntry {
   actorName: string;
   actorRole: string;
   publicUpdate: string;
+  explanation?: string;
   timestamp: string;
 }
 
