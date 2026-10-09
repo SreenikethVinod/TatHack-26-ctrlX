@@ -1,0 +1,8 @@
+{
+  "appId": "com.citypulse.app",
+  "appName": "CITYPULSE",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "http"
+  }
+}

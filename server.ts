@@ -19,6 +19,36 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // API router
+
+  // Allow the local Android Capacitor app to call the API.
+  app.use('/api', (req, res, next) => {
+    const origin = req.headers.origin;
+
+    const isLocalOrigin =
+      origin === 'http://localhost' ||
+      origin === 'https://localhost' ||
+      /^https?:\/\/localhost:\d+$/.test(origin || '');
+
+    if (origin && isLocalOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader(
+        'Access-Control-Allow-Methods',
+        'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+      );
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, x-demo-user-id'
+      );
+    }
+
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+
+    next();
+  });
+
   app.use('/api', apiRouter);
 
   if (!isProduction) {
@@ -39,7 +69,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[CivicPulse Server] Running on http://0.0.0.0:${PORT}`);
+    console.log(`[CivicPulse Server] Running on http://localhost:${PORT}`);
     escalationEngine.startScheduler(60000);
   });
 }
