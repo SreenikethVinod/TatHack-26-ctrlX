@@ -12,6 +12,7 @@ import {
   ArrowRight,
   ShieldAlert,
   Info,
+  Loader2,
   Construction,
   Trash2,
   Waves,
@@ -20,7 +21,8 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { api } from '../lib/api';
-import { ComplaintCategory, PriorityLevel } from '../types';
+import { AIVerificationResult, ComplaintCategory, PriorityLevel } from '../types';
+import { AIVerificationCard } from '../components/AIVerificationCard';
 import { useAuth } from '../context/AuthContext';
 import { detectRealLocation } from '../lib/geo';
 
@@ -45,6 +47,11 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
   const [locating, setLocating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // AI Verification & Forensics state
+  const [liveVerification, setLiveVerification] = useState<AIVerificationResult | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [submittedVerification, setSubmittedVerification] = useState<AIVerificationResult | null>(null);
 
   // Success state container
   const [createdRef, setCreatedRef] = useState<string | null>(null);
@@ -95,23 +102,23 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
     },
   ];
 
-  // Preset sample photos for rapid demonstration
+  // Preset sample photos for rapid demonstration (including authentic and AI synthetic tests)
   const sampleImages = [
     {
-      label: 'Deep Pothole',
+      label: 'Deep Pothole (Real)',
       url: 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=800&q=80',
     },
     {
-      label: 'Dumpster Overflow',
+      label: 'Dumpster Overflow (Real)',
       url: 'https://images.unsplash.com/photo-1605600659908-0ef719419d41?auto=format&fit=crop&w=800&q=80',
     },
     {
-      label: 'Pipe Leak',
-      url: 'https://images.unsplash.com/photo-1541888946425-d0fbb186c5f7?auto=format&fit=crop&w=800&q=80',
+      label: 'AI-Generated Test (Diffusion)',
+      url: 'https://example.com/assets/synthetic_pothole_midjourney_diffusion.jpg',
     },
     {
-      label: 'Broken Streetlight',
-      url: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=800&q=80',
+      label: 'Pipe Leak (Real)',
+      url: 'https://images.unsplash.com/photo-1541888946425-d0fbb186c5f7?auto=format&fit=crop&w=800&q=80',
     },
   ];
 
@@ -135,7 +142,36 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
     }
   };
 
-  // Image file upload handler (converts to base64 DataURL for offline self-contained demo)
+  // Live AI Verification & Forensics trigger
+  const triggerVerification = async (imgUrl: string) => {
+    if (!imgUrl) {
+      setLiveVerification(null);
+      return;
+    }
+    setIsVerifying(true);
+    try {
+      const res = await api.verifyComplaint({
+        title: title.trim(),
+        description: description.trim(),
+        category,
+        address: address.trim(),
+        locality: locality.trim(),
+        latitude,
+        longitude,
+        imageUrl: imgUrl,
+        safetyRisk,
+      });
+      if (res.success && res.verification) {
+        setLiveVerification(res.verification);
+      }
+    } catch (err) {
+      console.warn('Live AI verification warning:', err);
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  // Image file upload handler (converts to base64 DataURL and triggers AI verification)
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -153,7 +189,9 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
-        setImageUrl(reader.result);
+        const b64 = reader.result;
+        setImageUrl(b64);
+        triggerVerification(b64);
       }
     };
     reader.readAsDataURL(file);
@@ -204,6 +242,7 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
 
       if (response.success && response.complaint) {
         setCreatedRef(response.complaint.reference);
+        setSubmittedVerification(response.verification || liveVerification);
       } else {
         setErrorMsg('Failed to record submission. Please check inputs.');
       }
@@ -278,6 +317,16 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
               <span>{copied ? 'Copied!' : 'Copy Code'}</span>
             </button>
           </div>
+
+          {/* AI Verification & Credibility Result */}
+          {submittedVerification && (
+            <div className="text-left space-y-2">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                AI Forensics &amp; Severity Assessment
+              </span>
+              <AIVerificationCard verification={submittedVerification} />
+            </div>
+          )}
 
           {/* Action buttons */}
           <div className="space-y-3 pt-2">
@@ -548,7 +597,10 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
                   <button
                     type="button"
                     key={idx}
-                    onClick={() => setImageUrl(samp.url)}
+                    onClick={() => {
+                      setImageUrl(samp.url);
+                      triggerVerification(samp.url);
+                    }}
                     className={`text-left p-2 rounded-xl border text-xs flex items-center gap-2 transition-all ${
                       imageUrl === samp.url
                         ? 'border-teal-500 bg-teal-50 text-teal-900 font-semibold'
@@ -563,17 +615,34 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
             </div>
           </div>
 
-          {/* Active Image Preview */}
+          {/* Active Image Preview & AI Forensics Result */}
           {imageUrl && (
-            <div className="relative mt-2 rounded-xl overflow-hidden border border-slate-200 h-40 w-full bg-slate-100 flex items-center justify-center">
-              <img src={imageUrl} alt="Complaint preview" className="w-full h-full object-cover" />
-              <button
-                type="button"
-                onClick={() => setImageUrl('')}
-                className="absolute top-2 right-2 bg-slate-900/90 hover:bg-slate-900 text-white text-xs px-2.5 py-1 rounded-lg cursor-pointer"
-              >
-                Remove
-              </button>
+            <div className="space-y-3 mt-2">
+              <div className="relative rounded-xl overflow-hidden border border-slate-200 h-40 w-full bg-slate-100 flex items-center justify-center">
+                <img src={imageUrl} alt="Complaint preview" className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImageUrl('');
+                    setLiveVerification(null);
+                  }}
+                  className="absolute top-2 right-2 bg-slate-900/90 hover:bg-slate-900 text-white text-xs px-2.5 py-1 rounded-lg cursor-pointer"
+                >
+                  Remove
+                </button>
+              </div>
+
+              {/* AI Verification Analysis Loading or Card */}
+              {isVerifying ? (
+                <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center gap-3 text-indigo-900 text-xs">
+                  <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                  <span>
+                    Evaluating photo with <strong>Gemini 3.8 Flash</strong> for generative AI artifacts &amp; visual severity triage...
+                  </span>
+                </div>
+              ) : liveVerification ? (
+                <AIVerificationCard verification={liveVerification} />
+              ) : null}
             </div>
           )}
         </div>

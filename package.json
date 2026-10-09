@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
+    "ai": "tsx ai-module/server.ts",
     "build": "vite build",
     "preview": "vite preview",
     "start": "tsx server.ts",

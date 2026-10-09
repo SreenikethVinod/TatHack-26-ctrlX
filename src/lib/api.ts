@@ -1,4 +1,5 @@
 import {
+  AIVerificationResult,
   AnalyticsData,
   Complaint,
   ComplaintCategory,
@@ -134,8 +135,25 @@ export const api = {
     longitude?: number | null;
     imageUrl?: string;
     safetyRisk: boolean;
-  }): Promise<{ success: boolean; complaint: Complaint; message: string }> {
+  }): Promise<{ success: boolean; complaint: Complaint; verification?: AIVerificationResult; message: string }> {
     return request('/complaints', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async verifyComplaint(payload: {
+    title: string;
+    description: string;
+    category: ComplaintCategory;
+    address: string;
+    locality?: string;
+    latitude?: number | null;
+    longitude?: number | null;
+    imageUrl?: string;
+    safetyRisk?: boolean;
+  }): Promise<{ success: boolean; verification: AIVerificationResult }> {
+    return request('/complaints/verify', {
       method: 'POST',
       body: JSON.stringify(payload),
     });

@@ -23,6 +23,7 @@ import { Complaint, ComplaintHistoryEntry, ComplaintStatus, OfficialNote, Priori
 import { StatusBadge } from '../components/StatusBadge';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { Timeline } from '../components/Timeline';
+import { AIVerificationCard } from '../components/AIVerificationCard';
 import { useAuth } from '../context/AuthContext';
 
 export const OfficialDashboardPage: React.FC = () => {
@@ -411,6 +412,23 @@ export const OfficialDashboardPage: React.FC = () => {
                         </span>
                         <StatusBadge status={c.status} size="sm" />
                         <PriorityBadge priority={c.priority} size="sm" showIcon={false} />
+                        {c.aiVerification && (
+                          <span
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${
+                              c.aiVerification.verdict === 'VERIFIED_REAL'
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                : c.aiVerification.verdict === 'SUSPICIOUS_AI'
+                                ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                : 'bg-amber-50 text-amber-800 border-amber-200'
+                            }`}
+                          >
+                            {c.aiVerification.verdict === 'VERIFIED_REAL'
+                              ? `✓ Real (${c.aiVerification.authenticityScore}%)`
+                              : c.aiVerification.verdict === 'SUSPICIOUS_AI'
+                              ? `⚠️ AI-Gen (${c.aiVerification.aiGeneratedProbability}%)`
+                              : '⚠️ Flagged'}
+                          </span>
+                        )}
                         {isOverdue && (
                           <span className="text-[10px] bg-rose-100 text-rose-800 font-bold px-1.5 py-0.2 rounded border border-rose-300">
                             SLA Alert ({hoursOpen}h)
@@ -490,6 +508,16 @@ export const OfficialDashboardPage: React.FC = () => {
                   )}
                 </ul>
               </div>
+
+              {/* AI Verification & Credibility Analysis */}
+              {selectedComplaint.aiVerification && (
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                    AI Credibility &amp; Forensics Analysis
+                  </span>
+                  <AIVerificationCard verification={selectedComplaint.aiVerification} />
+                </div>
+              )}
 
               {/* Action Tabs */}
               <div className="flex border-b border-slate-200 gap-2 text-xs">
