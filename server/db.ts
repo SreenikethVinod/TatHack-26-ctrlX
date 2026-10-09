@@ -437,15 +437,22 @@ export class DatabaseRepository {
       }
     }
 
-    // Transparent prioritization calculation
+    // Transparent prioritization calculation with photo metadata location and description precision
     const recommendation = calculatePriorityScore({
       category: params.category,
+      title: params.title,
+      description: params.description,
       safetyRisk: params.safetyRisk,
       votesCount: 1,
       createdAt: now,
       status: 'Submitted',
       address: params.address,
       locality: params.locality,
+      latitude: params.latitude,
+      longitude: params.longitude,
+      photoMetadata: params.photoMetadata,
+      photoDistanceMeters: computedPhotoDistance,
+      locationMatchStatus: verifiedLocationMatchStatus,
     });
 
     // Deadlines: 14-day statutory acknowledgement deadline before District Admin escalation
@@ -660,12 +667,19 @@ export class DatabaseRepository {
               const newVoteCount = (canonical.votes_count || 1) + 1;
               const rec = calculatePriorityScore({
                 category: canonical.category,
+                title: canonical.title,
+                description: canonical.description,
                 safetyRisk: Boolean(canonical.safety_risk),
                 votesCount: newVoteCount,
                 createdAt: canonical.created_at,
                 status: canonical.status,
                 address: canonical.address,
                 locality: canonical.locality,
+                latitude: canonical.latitude,
+                longitude: canonical.longitude,
+                photoMetadata: canonical.photo_metadata,
+                photoDistanceMeters: canonical.photo_distance_meters,
+                locationMatchStatus: canonical.location_match_status,
               });
 
               let rationale: string[] = [];
@@ -942,12 +956,19 @@ export class DatabaseRepository {
       const newCount = Math.max(0, complaint.votesCount - 1);
       const rec = calculatePriorityScore({
         category: complaint.category,
+        title: complaint.title,
+        description: complaint.description,
         safetyRisk: complaint.safetyRisk,
         votesCount: newCount,
         createdAt: complaint.createdAt,
         status: complaint.status,
         address: complaint.address,
         locality: complaint.locality,
+        latitude: complaint.latitude,
+        longitude: complaint.longitude,
+        photoMetadata: complaint.photoMetadata,
+        photoDistanceMeters: complaint.photoDistanceMeters,
+        locationMatchStatus: complaint.locationMatchStatus,
       });
 
       const tx = this.db.transaction(() => {
@@ -980,12 +1001,19 @@ export class DatabaseRepository {
     // Recalculate smart priority score with new vote
     const rec = calculatePriorityScore({
       category: complaint.category,
+      title: complaint.title,
+      description: complaint.description,
       safetyRisk: complaint.safetyRisk,
       votesCount: newCount,
       createdAt: complaint.createdAt,
       status: complaint.status,
       address: complaint.address,
       locality: complaint.locality,
+      latitude: complaint.latitude,
+      longitude: complaint.longitude,
+      photoMetadata: complaint.photoMetadata,
+      photoDistanceMeters: complaint.photoDistanceMeters,
+      locationMatchStatus: complaint.locationMatchStatus,
     });
 
     const tx = this.db.transaction(() => {

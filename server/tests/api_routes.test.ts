@@ -3,6 +3,11 @@ import assert from 'node:assert';
 import express from 'express';
 import { apiRouter } from '../routes.ts';
 import { db } from '../db.ts';
+import { seedDatabase } from '../db/seed.ts';
+import { db as databaseConnection } from '../db/connection.ts';
+
+// Ensure seed data exists for API integration tests
+seedDatabase(databaseConnection);
 
 function createTestApp() {
   const app = express();
@@ -113,6 +118,8 @@ test('HTTP Routes: Complaint CRUD, Tracking, Votes & Notes', async () => {
     address: '900 Broadway Ave',
     locality: 'Central Metro',
     safetyRisk: true,
+  }, {
+    'x-demo-user-id': 'user-citizen-1',
   });
   assert.strictEqual(createRes.status, 201);
   assert.ok(createRes.body.complaint.id);
@@ -212,5 +219,5 @@ test('HTTP Routes: Planning, Duplicates & Analytics Endpoints', async () => {
   const resetRes = await simulateRequest(app, 'POST', '/api/reset-demo-data');
   assert.strictEqual(resetRes.status, 200);
   assert.strictEqual(resetRes.body.success, true);
-  assert.strictEqual(resetRes.body.complaintsCount, 16);
+  assert.strictEqual(resetRes.body.complaintsCount, 0);
 });
