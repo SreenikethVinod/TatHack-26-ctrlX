@@ -105,17 +105,23 @@ function analyzeDescriptionSemantics(description = '', title = '') {
     'flooded road', 'submerged', 'overflowing sewage', 'blackout', 'entire street dark',
     'broken guardrail', 'dangling pole', 'fallen tree', 'road blocked', 'traffic jammed',
     'blind curve', 'blind spot', 'severe leakage', 'water gushing', 'contamination',
+    'water leak', 'pipe leak', 'pipeline leak', 'major leak', 'leakage', 'slippery', 'skidding',
   ];
 
-  // 3. Vulnerable populations & documented incident history
+  // 3. Vulnerable populations & sensitive pedestrian contexts
   const vulnerabilityKeywords = [
-    'school child', 'school kids', 'children falling', 'students crossing',
-    'elderly fallen', 'senior citizen', 'wheelchair', 'pedestrians falling',
-    'biker fell', 'motorcyclist injured', 'scooter crashed', 'accident occurred',
-    'near collision', 'hospital gate', 'emergency entrance',
+    'school', 'kindergarten', 'daycare', 'playground', 'children', 'students',
+    'elderly', 'senior citizen', 'wheelchair', 'pedestrians', 'biker fell',
+    'motorcyclist injured', 'scooter crashed', 'accident', 'near collision',
+    'hospital gate', 'emergency entrance',
   ];
 
-  // 4. Cosmetic, routine, or low-urgency mitigating factors
+  // 4. Explicit hazard intensity descriptors
+  const hazardIntensityKeywords = [
+    'dangerous', 'hazardous', 'hazard', 'severe', 'life risk', 'accident prone', 'unsafe', 'risk of injury',
+  ];
+
+  // 5. Cosmetic, routine, or low-urgency mitigating factors
   const mitigatingKeywords = [
     'minor crack', 'hairline crack', 'small pothole', 'cosmetic',
     'slight peeling', 'peeled paint', 'flickering bulb', 'slow drip',
@@ -123,15 +129,18 @@ function analyzeDescriptionSemantics(description = '', title = '') {
     'not dangerous', 'low traffic', 'superficial',
   ];
 
+  const isNegated = (kw: string) => text.includes(`not ${kw}`) || text.includes(`non ${kw}`) || text.includes(`non-${kw}`);
+
   const matchedCritical = criticalKeywords.filter((kw) => text.includes(kw));
   const matchedHigh = highKeywords.filter((kw) => text.includes(kw));
   const matchedVulnerability = vulnerabilityKeywords.filter((kw) => text.includes(kw));
+  const matchedHazardIntensity = hazardIntensityKeywords.filter((kw) => text.includes(kw) && !isNegated(kw));
   const matchedMitigating = mitigatingKeywords.filter((kw) => text.includes(kw));
 
   let severityAdjustment = 0;
   const criticalHazardDetected = matchedCritical.length > 0;
   const highHazardDetected = matchedHigh.length > 0;
-  const cosmeticMitigationDetected = matchedMitigating.length > 0 && !criticalHazardDetected && !highHazardDetected;
+  const cosmeticMitigationDetected = matchedMitigating.length > 0 && !criticalHazardDetected && !highHazardDetected && matchedHazardIntensity.length === 0;
 
   if (criticalHazardDetected) {
     severityAdjustment += Math.min(35, 20 + matchedCritical.length * 5);
@@ -145,10 +154,17 @@ function analyzeDescriptionSemantics(description = '', title = '') {
     );
   }
 
+  if (matchedHazardIntensity.length > 0 && !cosmeticMitigationDetected) {
+    severityAdjustment += Math.min(15, 10 + (matchedHazardIntensity.length - 1) * 3);
+    rationalePoints.push(
+      `Hazard Intensity: Explicit danger markers flagged in description (${matchedHazardIntensity.slice(0, 2).map((k) => `"${k}"`).join(', ')}).`
+    );
+  }
+
   if (matchedVulnerability.length > 0) {
     severityAdjustment += Math.min(15, 8 + matchedVulnerability.length * 4);
     rationalePoints.push(
-      `Vulnerability Impact: Description flags risk to sensitive pedestrian group or documented accidents (${matchedVulnerability.slice(0, 2).map((k) => `"${k}"`).join(', ')}).`
+      `Vulnerability Impact: Description flags risk to sensitive pedestrian group or zone (${matchedVulnerability.slice(0, 2).map((k) => `"${k}"`).join(', ')}).`
     );
   }
 
@@ -159,12 +175,17 @@ function analyzeDescriptionSemantics(description = '', title = '') {
     );
   }
 
+  // Acute imminent bodily risk is inferred if critical keywords are present, OR if explicit danger intensity occurs in high hazard / vulnerable zones
+  const inferredImminentHazard =
+    criticalHazardDetected ||
+    (matchedHazardIntensity.length > 0 && (highHazardDetected || matchedVulnerability.length > 0));
+
   return {
     severityAdjustment,
     criticalHazardDetected,
     highHazardDetected,
     cosmeticMitigationDetected,
-    inferredImminentHazard: criticalHazardDetected,
+    inferredImminentHazard,
     rationalePoints,
   };
 }

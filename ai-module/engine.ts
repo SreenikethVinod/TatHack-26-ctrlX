@@ -253,6 +253,13 @@ function runHeuristicEvaluation(params: {
     'flooded road', 'submerged', 'overflowing sewage', 'blackout',
     'broken guardrail', 'dangling pole', 'fallen tree', 'road blocked',
     'traffic jam', 'blind spot', 'severe leakage', 'water gushing',
+    'water leak', 'pipe leak', 'pipeline leak', 'major leak', 'leakage',
+  ];
+  const hazardIntensityKeywords = [
+    'dangerous', 'hazardous', 'hazard', 'severe', 'life risk', 'accident prone', 'unsafe',
+  ];
+  const vulnerabilityKeywords = [
+    'school', 'kindergarten', 'daycare', 'playground', 'children', 'students', 'elderly', 'pedestrian',
   ];
   const mitigatingKeywords = [
     'minor crack', 'hairline crack', 'small pothole', 'cosmetic',
@@ -260,8 +267,12 @@ function runHeuristicEvaluation(params: {
     'dry leaves', 'routine maintenance', 'non urgent', 'superficial',
   ];
 
+  const isNegated = (kw: string) => text.includes(`not ${kw}`) || text.includes(`non ${kw}`) || text.includes(`non-${kw}`);
+
   const matchedCritical = criticalKeywords.filter((kw) => text.includes(kw));
   const matchedHigh = highKeywords.filter((kw) => text.includes(kw));
+  const matchedHazard = hazardIntensityKeywords.filter((kw) => text.includes(kw) && !isNegated(kw));
+  const matchedVuln = vulnerabilityKeywords.filter((kw) => text.includes(kw));
   const matchedMitigating = mitigatingKeywords.filter((kw) => text.includes(kw));
 
   let severityScore = 30;
@@ -307,7 +318,17 @@ function runHeuristicEvaluation(params: {
     severityRationale.push(`Description Semantics: Elevated urgency markers detected (${matchedHigh.slice(0, 2).map((k) => `"${k}"`).join(', ')}).`);
   }
 
-  if (matchedMitigating.length > 0 && matchedCritical.length === 0 && matchedHigh.length === 0) {
+  if (matchedHazard.length > 0) {
+    severityScore += 12;
+    severityRationale.push(`Description Semantics: Hazard intensity flagged (${matchedHazard.slice(0, 2).map((k) => `"${k}"`).join(', ')}).`);
+  }
+
+  if (matchedVuln.length > 0) {
+    severityScore += 10;
+    severityRationale.push(`Description Semantics: Sensitive pedestrian or child zone flagged (${matchedVuln.slice(0, 2).map((k) => `"${k}"`).join(', ')}).`);
+  }
+
+  if (matchedMitigating.length > 0 && matchedCritical.length === 0 && matchedHigh.length === 0 && matchedHazard.length === 0) {
     severityScore -= 18;
     severityRationale.push(`Description Semantics: Minor/cosmetic condition noted (${matchedMitigating[0]}).`);
   }
