@@ -12,19 +12,19 @@ import {
   ArrowRight,
   ShieldAlert,
   Info,
-  Loader2,
   Construction,
   Trash2,
   Waves,
   Lightbulb,
   Droplets,
   HelpCircle,
+  Lock,
 } from 'lucide-react';
 import { api } from '../lib/api';
-import { AIVerificationResult, ComplaintCategory, PriorityLevel } from '../types';
-import { AIVerificationCard } from '../components/AIVerificationCard';
+import { ComplaintCategory, PriorityLevel, PhotoVerificationMetadata } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { detectRealLocation } from '../lib/geo';
+import { detectRealLocation, reverseGeocodeCoordinates } from '../lib/geo';
+import { InAppCameraCapture } from '../components/InAppCameraCapture';
 
 interface Props {
   onSuccessNavigate: (reference: string) => void;
@@ -40,6 +40,7 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
   const [otherCategoryDetail, setOtherCategoryDetail] = useState('');
   const [address, setAddress] = useState('');
   const [locality, setLocality] = useState('');
+  const [landmark, setLandmark] = useState('');
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [safetyRisk, setSafetyRisk] = useState(false);
@@ -48,14 +49,18 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // AI Verification & Forensics state
-  const [liveVerification, setLiveVerification] = useState<AIVerificationResult | null>(null);
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [submittedVerification, setSubmittedVerification] = useState<AIVerificationResult | null>(null);
-
   // Success state container
   const [createdRef, setCreatedRef] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [photoFingerprint, setPhotoFingerprint] = useState<string | null>(null);
+  const [photoMetadata, setPhotoMetadata] = useState<PhotoVerificationMetadata | null>(null);
+  const [isFlaggedMismatch, setIsFlaggedMismatch] = useState<boolean>(false);
+  const [photoDistanceMeters, setPhotoDistanceMeters] = useState<number | null>(null);
+  const [mergeInfo, setMergeInfo] = useState<{
+    autoMerged: boolean;
+    canonicalReference: string | null;
+    message: string;
+  } | null>(null);
 
   const categories = [
     {
@@ -102,26 +107,6 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
     },
   ];
 
-  // Preset sample photos for rapid demonstration (including authentic and AI synthetic tests)
-  const sampleImages = [
-    {
-      label: 'Deep Pothole (Real)',
-      url: 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=800&q=80',
-    },
-    {
-      label: 'Dumpster Overflow (Real)',
-      url: 'https://images.unsplash.com/photo-1605600659908-0ef719419d41?auto=format&fit=crop&w=800&q=80',
-    },
-    {
-      label: 'AI-Generated Test (Diffusion)',
-      url: 'https://example.com/assets/synthetic_pothole_midjourney_diffusion.jpg',
-    },
-    {
-      label: 'Pipe Leak (Real)',
-      url: 'https://images.unsplash.com/photo-1541888946425-d0fbb186c5f7?auto=format&fit=crop&w=800&q=80',
-    },
-  ];
-
   // Geolocation trigger
   const handleDetectLocation = async () => {
     setLocating(true);
@@ -142,61 +127,6 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
     }
   };
 
-  // Live AI Verification & Forensics trigger
-  const triggerVerification = async (imgUrl: string) => {
-    if (!imgUrl) {
-      setLiveVerification(null);
-      return;
-    }
-    setIsVerifying(true);
-    try {
-      const res = await api.verifyComplaint({
-        title: title.trim(),
-        description: description.trim(),
-        category,
-        address: address.trim(),
-        locality: locality.trim(),
-        latitude,
-        longitude,
-        imageUrl: imgUrl,
-        safetyRisk,
-      });
-      if (res.success && res.verification) {
-        setLiveVerification(res.verification);
-      }
-    } catch (err) {
-      console.warn('Live AI verification warning:', err);
-    } finally {
-      setIsVerifying(false);
-    }
-  };
-
-  // Image file upload handler (converts to base64 DataURL and triggers AI verification)
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      alert('Please upload a valid image file (JPEG, PNG, or WebP).');
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      alert('File size exceeds 5MB limit. Please select a smaller photo.');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        const b64 = reader.result;
-        setImageUrl(b64);
-        triggerVerification(b64);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -211,8 +141,12 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
       return;
     }
 
-    if (!address.trim() || address.trim().length < 3) {
-      setErrorMsg('Please provide the physical location or street landmark.');
+    const composedAddress = landmark.trim()
+      ? (address.trim() ? `${address.trim()} (Near: ${landmark.trim()})` : `Landmark: ${landmark.trim()}`)
+      : address.trim();
+
+    if (!composedAddress || composedAddress.length < 3) {
+      setErrorMsg('Please capture a photo below to auto-detect location, or specify a nearby landmark.');
       return;
     }
 
@@ -232,17 +166,28 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
         title: title.trim(),
         description: finalDesc,
         category,
-        address: address.trim(),
+        address: composedAddress,
         locality: locality.trim() || 'Metro District',
         latitude,
         longitude,
         imageUrl: imageUrl || undefined,
         safetyRisk,
+        photoFingerprint: photoFingerprint || null,
+        photoMetadata: photoMetadata || null,
+        photoDistanceMeters,
+        isFlaggedLocationMismatch: isFlaggedMismatch,
+        locationMatchStatus: imageUrl ? (isFlaggedMismatch ? 'FLAGGED_MISMATCH' : 'VERIFIED') : 'NO_PHOTO',
       });
 
       if (response.success && response.complaint) {
         setCreatedRef(response.complaint.reference);
-        setSubmittedVerification(response.verification || liveVerification);
+        if (response.autoMerged && response.canonicalReference) {
+          setMergeInfo({
+            autoMerged: true,
+            canonicalReference: response.canonicalReference,
+            message: response.message,
+          });
+        }
       } else {
         setErrorMsg('Failed to record submission. Please check inputs.');
       }
@@ -318,13 +263,59 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
             </button>
           </div>
 
-          {/* AI Verification & Credibility Result */}
-          {submittedVerification && (
-            <div className="text-left space-y-2">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
-                AI Forensics &amp; Severity Assessment
-              </span>
-              <AIVerificationCard verification={submittedVerification} />
+          {/* Spatial Auto-Merge Banner */}
+          {mergeInfo?.autoMerged && (
+            <div className="p-4 bg-purple-50/90 border-2 border-purple-200 rounded-2xl text-left space-y-2.5 animate-in fade-in">
+              <div className="flex items-center gap-2 text-purple-950 font-extrabold text-xs sm:text-sm">
+                <Sparkles className="w-4 h-4 text-purple-600 shrink-0" />
+                <span>Automatic Spatial Merge (~50m Across Road)</span>
+              </div>
+              <p className="text-xs text-purple-900 leading-relaxed">
+                Another resident reported the same problem across the road. Both reports are automatically clustered into canonical ticket <strong className="font-mono text-purple-950 font-bold bg-purple-100 px-1.5 py-0.5 rounded border border-purple-200">{mergeInfo.canonicalReference}</strong> to pool community urgency and eliminate duplicate contractor visits!
+              </p>
+              <div className="flex items-center gap-2 text-[11px] text-purple-800 bg-white/80 p-2.5 rounded-xl border border-purple-100 font-medium">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>You are automatically subscribed as a follower. You will receive notifications whenever this issue is updated.</span>
+              </div>
+            </div>
+          )}
+
+          {/* Photo Verification Banner */}
+          {imageUrl && (
+            <div
+              className={`p-4 rounded-2xl border text-left space-y-1.5 ${
+                isFlaggedMismatch
+                  ? 'bg-rose-50 border-rose-200 text-rose-950'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-950'
+              }`}
+            >
+              <div className="flex items-center gap-2 font-extrabold text-xs">
+                {isFlaggedMismatch ? (
+                  <>
+                    <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>⚠️ Camera Photo Flagged: Location Discrepancy</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>✅ Live In-App Camera Photo Verified On-Site</span>
+                  </>
+                )}
+              </div>
+              <p className="text-xs leading-relaxed">
+                {isFlaggedMismatch
+                  ? `Photo was captured ${
+                      photoDistanceMeters && photoDistanceMeters > 1000
+                        ? `${(photoDistanceMeters / 1000).toFixed(1)} km`
+                        : `${photoDistanceMeters || 0} meters`
+                    } away from the selected pin. Flagged for officer physical audit.`
+                  : 'Photo sensor coordinates match your incident pin. Cryptographic fingerprint recorded in public municipal ledger.'}
+              </p>
+              {photoFingerprint && (
+                <div className="font-mono text-[10px] text-slate-500 pt-1 truncate">
+                  SHA-256: <span className="text-slate-800">{photoFingerprint}</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -464,65 +455,97 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
           />
         </div>
 
-        {/* Location Section */}
-        <div className="space-y-3">
+        {/* 4. Location Section */}
+        <div className="space-y-3.5">
           <div className="flex items-center justify-between">
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-              4. Physical Location &amp; Landmark <span className="text-rose-500">*</span>
+              4. Physical Location &amp; Landmark
             </label>
             <button
               type="button"
               onClick={handleDetectLocation}
               disabled={locating}
-              className="text-xs text-teal-600 hover:text-teal-700 font-semibold flex items-center gap-1 transition-colors"
+              className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold flex items-center gap-1 transition-colors cursor-pointer"
             >
               <Navigation className={`w-3.5 h-3.5 ${locating ? 'animate-spin' : ''}`} />
-              <span>{locating ? 'Locating...' : 'Use My GPS Location'}</span>
+              <span>{locating ? 'Detecting...' : 'Quick Device GPS'}</span>
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="sm:col-span-2">
-              <input
-                type="text"
-                required
-                placeholder="Street address or nearby landmark (e.g. 742 4th Ave near Elm)"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                className="w-full text-sm border border-slate-300 rounded-xl px-4 py-2.5 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 placeholder-slate-400"
-              />
+          {/* Greyed out Physical Location (Autofilled from Image Metadata) */}
+          <div className="p-3.5 bg-slate-50/80 border border-slate-200 rounded-2xl space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 text-[11px]">
+                <Lock className="w-3.5 h-3.5 text-slate-400" />
+                <span>Physical Location (Auto-Filled from Photo GPS)</span>
+              </span>
+              {address ? (
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                  <span>Auto-Detected &amp; Locked</span>
+                </span>
+              ) : (
+                <span className="text-[10px] text-slate-400 font-medium">
+                  Take photo below to auto-fill
+                </span>
+              )}
             </div>
-            <div>
-              <input
-                type="text"
-                placeholder="Neighborhood / Locality"
-                value={locality}
-                onChange={(e) => setLocality(e.target.value)}
-                className="w-full text-sm border border-slate-300 rounded-xl px-4 py-2.5 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 placeholder-slate-400"
-              />
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="sm:col-span-2">
+                <input
+                  type="text"
+                  readOnly
+                  disabled
+                  placeholder="📸 Will auto-populate from photo camera metadata..."
+                  value={address}
+                  className="w-full text-xs sm:text-sm bg-slate-100 text-slate-700 font-medium border border-slate-300 rounded-xl px-3.5 py-2.5 cursor-not-allowed select-all placeholder-slate-400 shadow-inner"
+                />
+              </div>
+              <div>
+                <input
+                  type="text"
+                  readOnly
+                  disabled
+                  placeholder="Ward / Locality"
+                  value={locality}
+                  className="w-full text-xs sm:text-sm bg-slate-100 text-slate-700 font-medium border border-slate-300 rounded-xl px-3.5 py-2.5 cursor-not-allowed select-all placeholder-slate-400 shadow-inner"
+                />
+              </div>
             </div>
+
+            {latitude && longitude ? (
+              <div className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Sensor Pin: {latitude.toFixed(5)}, {longitude.toFixed(5)}</span>
+                </div>
+                <span className="font-bold text-[10px] text-emerald-700">GPS Locked</span>
+              </div>
+            ) : (
+              <p className="text-[10px] text-slate-400 italic">
+                The exact street address and coordinates will be automatically extracted from your camera capture below.
+              </p>
+            )}
           </div>
 
-          {latitude && longitude && (
-            <div className="text-xs text-emerald-850 bg-emerald-50 border border-emerald-300 px-3.5 py-2.5 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
-              <div className="flex items-center gap-2.5">
-                <div className="w-6 h-6 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
-                  <MapPin className="w-3.5 h-3.5 text-emerald-700" />
-                </div>
-                <div>
-                  <div className="text-[11px] font-bold text-emerald-900">
-                    Real Device GPS Coordinates Locked
-                  </div>
-                  <div className="text-[11px] text-emerald-700">
-                    {address ? address : `Coordinates: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`}
-                  </div>
-                </div>
-              </div>
-              <span className="text-[10px] font-mono font-bold bg-white border border-emerald-200 text-emerald-800 px-2.5 py-1 rounded-lg shrink-0">
-                {latitude.toFixed(4)}, {longitude.toFixed(4)}
-              </span>
-            </div>
-          )}
+          {/* User-editable Landmark Input */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+              Nearby Landmark / Local Proximity <span className="text-rose-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Near the statue, opposite campus gate 3, beside blue pharmacy..."
+              value={landmark}
+              onChange={(e) => setLandmark(e.target.value)}
+              className="w-full text-xs sm:text-sm bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 placeholder-slate-400 text-slate-900 shadow-2xs"
+            />
+            <p className="text-[11px] text-slate-500">
+              Provide visual landmarks (statue, campus gate, pillar number, building name) so ground crews locate the issue immediately.
+            </p>
+          </div>
         </div>
 
         {/* Safety Risk Toggle with Smart Rule Engine Rationale Preview */}
@@ -574,78 +597,44 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
           <p className="text-[11px] text-amber-800 italic">{preview.reason}</p>
         </div>
 
-        {/* Photo Upload & Sample Presets */}
-        <div className="space-y-3">
-          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-            5. Evidence Photo (Optional but Recommended)
-          </label>
+        {/* 5. Live In-App Camera Evidence Capture */}
+        <InAppCameraCapture
+          reportedLatitude={latitude}
+          reportedLongitude={longitude}
+          reportedAddress={address}
+          existingImageUrl={imageUrl}
+          existingMetadata={photoMetadata}
+          onPhotoCaptured={async ({ imageUrl, photoFingerprint, photoMetadata, isFlaggedMismatch, distanceMeters }) => {
+            setImageUrl(imageUrl);
+            setPhotoFingerprint(photoFingerprint);
+            setPhotoMetadata(photoMetadata);
+            setIsFlaggedMismatch(isFlaggedMismatch);
+            setPhotoDistanceMeters(distanceMeters);
 
-          <div className="flex flex-col sm:flex-row gap-4 items-start">
-            {/* Custom file picker */}
-            <label className="cursor-pointer border-2 border-dashed border-slate-300 hover:border-teal-500 rounded-2xl p-4 text-center flex flex-col items-center justify-center w-full sm:w-60 h-36 bg-slate-50 transition-colors">
-              <Upload className="w-6 h-6 text-slate-400 mb-1" />
-              <span className="text-xs font-semibold text-slate-700">Choose Photo File</span>
-              <span className="text-[10px] text-slate-400 mt-0.5">JPG, PNG up to 5MB</span>
-              <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-            </label>
-
-            {/* Quick Demo preset selection */}
-            <div className="flex-1 space-y-2">
-              <span className="text-xs font-semibold text-slate-500">Or use a sample demo incident photo:</span>
-              <div className="grid grid-cols-2 gap-2">
-                {sampleImages.map((samp, idx) => (
-                  <button
-                    type="button"
-                    key={idx}
-                    onClick={() => {
-                      setImageUrl(samp.url);
-                      triggerVerification(samp.url);
-                    }}
-                    className={`text-left p-2 rounded-xl border text-xs flex items-center gap-2 transition-all ${
-                      imageUrl === samp.url
-                        ? 'border-teal-500 bg-teal-50 text-teal-900 font-semibold'
-                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    <img src={samp.url} alt={samp.label} className="w-8 h-8 rounded-lg object-cover" />
-                    <span className="truncate text-[11px]">{samp.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Active Image Preview & AI Forensics Result */}
-          {imageUrl && (
-            <div className="space-y-3 mt-2">
-              <div className="relative rounded-xl overflow-hidden border border-slate-200 h-40 w-full bg-slate-100 flex items-center justify-center">
-                <img src={imageUrl} alt="Complaint preview" className="w-full h-full object-cover" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setImageUrl('');
-                    setLiveVerification(null);
-                  }}
-                  className="absolute top-2 right-2 bg-slate-900/90 hover:bg-slate-900 text-white text-xs px-2.5 py-1 rounded-lg cursor-pointer"
-                >
-                  Remove
-                </button>
-              </div>
-
-              {/* AI Verification Analysis Loading or Card */}
-              {isVerifying ? (
-                <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center gap-3 text-indigo-900 text-xs">
-                  <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
-                  <span>
-                    Evaluating photo with <strong>Gemini 3.8 Flash</strong> for generative AI artifacts &amp; visual severity triage...
-                  </span>
-                </div>
-              ) : liveVerification ? (
-                <AIVerificationCard verification={liveVerification} />
-              ) : null}
-            </div>
-          )}
-        </div>
+            // Automatically extract and autofill physical location from camera image GPS metadata!
+            if (photoMetadata.deviceGps) {
+              const pLat = photoMetadata.deviceGps.latitude;
+              const pLng = photoMetadata.deviceGps.longitude;
+              setLatitude(pLat);
+              setLongitude(pLng);
+              try {
+                const geo = await reverseGeocodeCoordinates(pLat, pLng);
+                if (geo.address) setAddress(geo.address);
+                if (geo.locality) setLocality(geo.locality);
+              } catch (err) {
+                console.warn('Auto reverse geocoding warning:', err);
+                setAddress(`GPS Pin: ${pLat.toFixed(5)}, ${pLng.toFixed(5)}`);
+              }
+            }
+          }}
+          onPhotoCleared={() => {
+            setImageUrl('');
+            setPhotoFingerprint(null);
+            setPhotoMetadata(null);
+            setIsFlaggedMismatch(false);
+            setPhotoDistanceMeters(null);
+          }}
+        />
 
         {/* Reporter info */}
         <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs text-slate-600">

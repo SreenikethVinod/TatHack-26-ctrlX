@@ -19,13 +19,19 @@ import {
   ChevronRight,
   X,
   MessageSquare,
+  Bell,
+  BellRing,
+  Sparkles,
+  Lock,
 } from 'lucide-react';
 import { api } from '../lib/api';
-import { Complaint, ComplaintCategory, ComplaintHistoryEntry, OfficialNote } from '../types';
+import { Complaint, ComplaintCategory, ComplaintHistoryEntry, OfficialNote, PhotoVerificationMetadata } from '../types';
 import { StatusBadge } from '../components/StatusBadge';
 import { PriorityBadge } from '../components/PriorityBadge';
+import { PhotoVerificationBadge } from '../components/PhotoVerificationBadge';
+import { InAppCameraCapture } from '../components/InAppCameraCapture';
 import { useAuth } from '../context/AuthContext';
-import { detectRealLocation } from '../lib/geo';
+import { detectRealLocation, reverseGeocodeCoordinates } from '../lib/geo';
 
 interface Props {
   onTrackNavigate?: (reference: string) => void;
@@ -35,9 +41,11 @@ interface Props {
 export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
   const { currentUser } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'my-reports' | 'new-report'>('my-reports');
+  const [activeTab, setActiveTab] = useState<'my-reports' | 'followed-reports' | 'new-report'>('my-reports');
   const [myComplaints, setMyComplaints] = useState<Complaint[]>([]);
+  const [followedComplaints, setFollowedComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [followingLoading, setFollowingLoading] = useState(false);
 
   // Selected complaint for modal details
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
@@ -51,11 +59,16 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
   const [otherCategoryDetail, setOtherCategoryDetail] = useState('');
   const [address, setAddress] = useState('');
   const [locality, setLocality] = useState('');
+  const [landmark, setLandmark] = useState('');
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [description, setDescription] = useState('');
   const [safetyRisk, setSafetyRisk] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
+  const [photoFingerprint, setPhotoFingerprint] = useState<string | null>(null);
+  const [photoMetadata, setPhotoMetadata] = useState<PhotoVerificationMetadata | null>(null);
+  const [isFlaggedMismatch, setIsFlaggedMismatch] = useState<boolean>(false);
+  const [photoDistanceMeters, setPhotoDistanceMeters] = useState<number | null>(null);
   const [locating, setLocating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -90,7 +103,9 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
       const mine = all.filter(
         (c) => c.reporterId === currentUser.id || c.reporterName === currentUser.name
       );
+      const followed = all.filter((c) => c.isFollowing);
       setMyComplaints(mine);
+      setFollowedComplaints(followed);
     } catch (err) {
       console.error('Failed to load citizen complaints', err);
     } finally {
@@ -117,6 +132,26 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
     }
   };
 
+  const handleToggleFollow = async (complaintId: string) => {
+    if (!currentUser || followingLoading) return;
+    setFollowingLoading(true);
+    try {
+      const res = await api.followComplaint(complaintId);
+      if (selectedComplaint && selectedComplaint.id === complaintId) {
+        setSelectedComplaint({
+          ...selectedComplaint,
+          isFollowing: res.isFollowing,
+          followersCount: res.followersCount,
+        });
+      }
+      await loadCitizenComplaints();
+    } catch (err) {
+      console.error('Failed to toggle follow status', err);
+    } finally {
+      setFollowingLoading(false);
+    }
+  };
+
   const handleCreateReport = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !description.trim() || !address.trim()) {
@@ -139,19 +174,39 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
           ? `[Custom Category: ${otherCategoryDetail.trim()}]\n\n${description.trim()}`
           : description.trim();
 
+      const composedAddress = landmark.trim()
+        ? (address.trim() ? `${address.trim()} (Near: ${landmark.trim()})` : `Landmark: ${landmark.trim()}`)
+        : address.trim();
+
+      if (!composedAddress || composedAddress.length < 3) {
+        setSubmitError('Please capture an evidence photo below to auto-detect location, or specify a nearby landmark.');
+        setSubmitting(false);
+        return;
+      }
+
       const res = await api.createComplaint({
         title: title.trim(),
         description: finalDesc,
         category,
-        address: address.trim(),
+        address: composedAddress,
         locality: locality.trim(),
         latitude,
         longitude,
         safetyRisk,
         imageUrl: imageUrl.trim() || undefined,
+        photoFingerprint: photoFingerprint || null,
+        photoMetadata: photoMetadata || null,
+        photoDistanceMeters,
+        isFlaggedLocationMismatch: isFlaggedMismatch,
+        locationMatchStatus: imageUrl ? (isFlaggedMismatch ? 'FLAGGED_MISMATCH' : 'VERIFIED') : 'NO_PHOTO',
       });
 
-      setSubmitSuccess(`Report registered successfully with Reference ID ${res.complaint.reference}! 14-day municipal review started.`);
+      let successText = `Report registered successfully with Reference ID ${res.complaint.reference}! 14-day municipal review started.`;
+      if (res.complaint.isFlaggedLocationMismatch) {
+        successText += ` ⚠️ Note: Photo location discrepancy flagged (${res.complaint.photoDistanceMeters || 0}m away from reported location) for on-site inspection.`;
+      }
+      setSubmitSuccess(successText);
+
       // Reset form
       setTitle('');
       setCategory('road_damage');
@@ -159,9 +214,14 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
       setDescription('');
       setAddress('');
       setLocality('');
+      setLandmark('');
       setLatitude(null);
       setLongitude(null);
       setImageUrl('');
+      setPhotoFingerprint(null);
+      setPhotoMetadata(null);
+      setIsFlaggedMismatch(false);
+      setPhotoDistanceMeters(null);
       setSafetyRisk(false);
 
       // Refresh list and switch to "my-reports"
@@ -169,20 +229,13 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
       setTimeout(() => {
         setActiveTab('my-reports');
         setSubmitSuccess(null);
-      }, 1200);
+      }, 1500);
     } catch (err: any) {
       setSubmitError(err.message || 'Failed to submit civic report.');
     } finally {
       setSubmitting(false);
     }
   };
-
-  const sampleImages = [
-    { label: 'Pothole Damage', url: 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=600&q=80' },
-    { label: 'Garbage Overflow', url: 'https://images.unsplash.com/photo-1605600659873-d808a13e4d2a?auto=format&fit=crop&w=600&q=80' },
-    { label: 'Streetlight Broken', url: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=600&q=80' },
-    { label: 'Water Pipe Leak', url: 'https://images.unsplash.com/photo-1585314062340-f1a5a7c9328d?auto=format&fit=crop&w=600&q=80' },
-  ];
 
   return (
     <div className="max-w-6xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6 animate-in fade-in duration-150">
@@ -207,12 +260,12 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
           </div>
         </div>
 
-        {/* Tab Switcher: View Reports vs Create Report */}
-        <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl self-start md:self-auto">
+        {/* Tab Switcher: View Reports vs Followed Reports vs Create Report */}
+        <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl self-start md:self-auto flex-wrap">
           <button
             type="button"
             onClick={() => setActiveTab('my-reports')}
-            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+            className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
               activeTab === 'my-reports'
                 ? 'bg-white text-indigo-700 shadow-2xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -223,8 +276,20 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab('followed-reports')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'followed-reports'
+                ? 'bg-white text-indigo-700 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Bell className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Followed Reports ({followedComplaints.length})</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('new-report')}
-            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+            className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
               activeTab === 'new-report'
                 ? 'bg-indigo-600 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -298,10 +363,14 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
+            {/* Physical Location & Landmark Section */}
+            <div className="space-y-3">
+              <div className="p-3.5 bg-slate-50/80 border border-slate-200 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700">Specific Location / Address *</label>
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Physical Location (Auto-Filled from Photo GPS)</span>
+                  </span>
                   <button
                     type="button"
                     onClick={handleDetectLocation}
@@ -309,54 +378,67 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
                     className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 transition-colors cursor-pointer"
                   >
                     <MapPin className={`w-3.5 h-3.5 ${locating ? 'animate-bounce text-indigo-600' : ''}`} />
-                    <span>{locating ? 'Detecting Real Address...' : 'Use My GPS Location'}</span>
+                    <span>{locating ? 'Detecting...' : 'Detect Device GPS'}</span>
                   </button>
                 </div>
-                <div className="relative">
-                  <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                  <input
-                    type="text"
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    placeholder="e.g. Near Crossroad 4, Oakwood North"
-                    required
-                    className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
-                  />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={address}
+                      placeholder="📸 Will auto-populate from photo camera capture..."
+                      className="w-full px-3.5 py-2.5 bg-slate-100 text-slate-700 font-medium border border-slate-300 rounded-xl text-xs sm:text-sm cursor-not-allowed select-all placeholder-slate-400 shadow-inner"
+                    />
+                  </div>
+
+                  <div>
+                    <input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={locality}
+                      placeholder="Locality / Ward"
+                      className="w-full px-3.5 py-2.5 bg-slate-100 text-slate-700 font-medium border border-slate-300 rounded-xl text-xs sm:text-sm cursor-not-allowed select-all placeholder-slate-400 shadow-inner"
+                    />
+                  </div>
                 </div>
+
+                {latitude && longitude ? (
+                  <div className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Camera Sensor Coordinates: {latitude.toFixed(5)}, {longitude.toFixed(5)}</span>
+                    </div>
+                    <span className="font-bold text-[10px] text-emerald-700">GPS Locked</span>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-slate-400 italic">
+                    The physical street address and coordinates are auto-detected when you take an evidence photo below.
+                  </p>
+                )}
               </div>
 
+              {/* User-editable Landmark Input */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700">Locality / Ward</label>
+                <label className="text-xs font-bold text-slate-800">
+                  Nearby Landmark / Local Proximity <span className="text-rose-500">*</span>
+                </label>
                 <input
                   type="text"
-                  value={locality}
-                  onChange={(e) => setLocality(e.target.value)}
-                  placeholder="e.g. Indiranagar, Oakwood Ward"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                  required
+                  value={landmark}
+                  onChange={(e) => setLandmark(e.target.value)}
+                  placeholder="e.g. Near the statue, opposite campus gate 3, beside ATM..."
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 shadow-2xs"
                 />
+                <p className="text-[11px] text-slate-500">
+                  Enter recognizable local landmarks (statue, campus gate, shop, pillar number) so ground teams locate the exact spot.
+                </p>
               </div>
             </div>
-
-            {latitude && longitude && (
-              <div className="text-xs text-emerald-850 bg-emerald-50 border border-emerald-300 px-3.5 py-2.5 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-6 h-6 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
-                    <MapPin className="w-3.5 h-3.5 text-emerald-700" />
-                  </div>
-                  <div>
-                    <div className="text-[11px] font-bold text-emerald-900">
-                      Real Device GPS Location Verified
-                    </div>
-                    <div className="text-[11px] text-emerald-700">
-                      {address ? address : `Coordinates: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`}
-                    </div>
-                  </div>
-                </div>
-                <span className="text-[10px] font-mono font-bold bg-white border border-emerald-200 text-emerald-800 px-2.5 py-1 rounded-lg shrink-0">
-                  {latitude.toFixed(4)}, {longitude.toFixed(4)}
-                </span>
-              </div>
-            )}
 
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-700">Detailed Description *</label>
@@ -370,47 +452,44 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
               />
             </div>
 
-            {/* Photo Attachment */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                <Camera className="w-3.5 h-3.5 text-slate-400" />
-                <span>Attach Photo (URL or Sample Preset)</span>
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="url"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="https://images.unsplash.com/..."
-                  className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
-                />
-              </div>
+            {/* Live In-App Camera Evidence */}
+            <InAppCameraCapture
+              reportedLatitude={latitude}
+              reportedLongitude={longitude}
+              reportedAddress={address}
+              existingImageUrl={imageUrl}
+              existingMetadata={photoMetadata}
+              onPhotoCaptured={async ({ imageUrl, photoFingerprint, photoMetadata, isFlaggedMismatch, distanceMeters }) => {
+                setImageUrl(imageUrl);
+                setPhotoFingerprint(photoFingerprint);
+                setPhotoMetadata(photoMetadata);
+                setIsFlaggedMismatch(isFlaggedMismatch);
+                setPhotoDistanceMeters(distanceMeters);
 
-              {/* Sample Photo Presets */}
-              <div className="flex items-center gap-2 pt-1 flex-wrap">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quick Sample Photos:</span>
-                {sampleImages.map((s) => (
-                  <button
-                    key={s.label}
-                    type="button"
-                    onClick={() => setImageUrl(s.url)}
-                    className="text-[11px] px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors cursor-pointer"
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-
-              {imageUrl && (
-                <div className="pt-2">
-                  <img
-                    src={imageUrl}
-                    alt="Preview"
-                    className="w-32 h-20 object-cover rounded-xl border border-slate-200"
-                  />
-                </div>
-              )}
-            </div>
+                // Autofill physical location from camera image GPS metadata!
+                if (photoMetadata.deviceGps) {
+                  const pLat = photoMetadata.deviceGps.latitude;
+                  const pLng = photoMetadata.deviceGps.longitude;
+                  setLatitude(pLat);
+                  setLongitude(pLng);
+                  try {
+                    const geo = await reverseGeocodeCoordinates(pLat, pLng);
+                    if (geo.address) setAddress(geo.address);
+                    if (geo.locality) setLocality(geo.locality);
+                  } catch (err) {
+                    console.warn('Auto reverse geocoding error:', err);
+                    setAddress(`GPS Pin: ${pLat.toFixed(5)}, ${pLng.toFixed(5)}`);
+                  }
+                }
+              }}
+              onPhotoCleared={() => {
+                setImageUrl('');
+                setPhotoFingerprint(null);
+                setPhotoMetadata(null);
+                setIsFlaggedMismatch(false);
+                setPhotoDistanceMeters(null);
+              }}
+            />
 
             {/* Safety Risk Checkbox */}
             <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl flex items-start gap-3">
@@ -534,6 +613,17 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
                         </span>
                         <StatusBadge status={c.status} />
                         <PriorityBadge priority={c.priority} />
+                        {c.imageUrl && (
+                          <PhotoVerificationBadge
+                            imageUrl={c.imageUrl}
+                            photoFingerprint={c.photoFingerprint}
+                            photoMetadata={c.photoMetadata}
+                            isFlaggedLocationMismatch={c.isFlaggedLocationMismatch}
+                            locationMatchStatus={c.locationMatchStatus}
+                            photoDistanceMeters={c.photoDistanceMeters}
+                            compact
+                          />
+                        )}
                         <span className="text-xs text-slate-400">
                           {new Date(c.createdAt).toLocaleDateString()}
                         </span>
@@ -668,6 +758,97 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
         </div>
       )}
 
+      {/* TAB 3: FOLLOWED REPORTS */}
+      {activeTab === 'followed-reports' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-extrabold text-slate-900">Reports You Are Following</h2>
+              <p className="text-xs text-slate-500">
+                You receive instant in-app alerts whenever work orders are assigned, inspections occur, or repairs conclude.
+              </p>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="syntrix-card bg-white p-12 text-center space-y-3">
+              <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-xs text-slate-400">Loading followed reports...</p>
+            </div>
+          ) : followedComplaints.length === 0 ? (
+            <div className="syntrix-card bg-white p-10 text-center space-y-4 border border-dashed border-slate-300">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto">
+                <Bell className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-sm">You haven't followed any reports yet</h3>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  Browse the public feed or explore reports in your neighborhood and click "Follow Report" to receive notifications.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {followedComplaints.map((c) => (
+                <div
+                  key={c.id}
+                  className="syntrix-card bg-white p-5 rounded-2xl border border-slate-200/80 space-y-4 shadow-2xs hover:border-indigo-300 transition-all"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                      {c.reference}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <StatusBadge status={c.status} />
+                      <PriorityBadge priority={c.priority} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="font-extrabold text-slate-900 text-sm leading-snug line-clamp-1">{c.title}</h3>
+                    <p className="text-xs text-slate-600 line-clamp-2 mt-1">{c.description}</p>
+                    <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-2 truncate">
+                      <MapPin className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                      <span className="truncate">{c.address} ({c.locality})</span>
+                    </div>
+                  </div>
+
+                  {c.isMerged && (
+                    <div className="p-2.5 bg-purple-50 rounded-xl border border-purple-200 text-xs text-purple-900 flex items-center gap-2">
+                      <Sparkles className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                      <span className="text-[11px] font-semibold">
+                        Spatial Auto-Merge: Clustered with matching report ~50m across road.
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleFollow(c.id)}
+                      disabled={followingLoading}
+                      className="text-xs font-semibold text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer"
+                    >
+                      <BellRing className="w-3.5 h-3.5" />
+                      <span>Unfollow</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onTrackNavigate && onTrackNavigate(c.reference)}
+                      className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Track Status</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* DETAIL MODAL FOR CITIZEN INSPECTION */}
       {selectedComplaint && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -732,12 +913,20 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
 
               {/* Photo if any */}
               {selectedComplaint.imageUrl && (
-                <div>
-                  <div className="text-xs font-bold text-slate-700 mb-1.5">Photographic Evidence</div>
+                <div className="space-y-2">
+                  <div className="text-xs font-bold text-slate-700">Photographic Evidence</div>
                   <img
                     src={selectedComplaint.imageUrl}
                     alt="Evidence"
                     className="w-full h-48 object-cover rounded-xl border border-slate-200"
+                  />
+                  <PhotoVerificationBadge
+                    imageUrl={selectedComplaint.imageUrl}
+                    photoFingerprint={selectedComplaint.photoFingerprint}
+                    photoMetadata={selectedComplaint.photoMetadata}
+                    isFlaggedLocationMismatch={selectedComplaint.isFlaggedLocationMismatch}
+                    locationMatchStatus={selectedComplaint.locationMatchStatus}
+                    photoDistanceMeters={selectedComplaint.photoDistanceMeters}
                   />
                 </div>
               )}
@@ -770,14 +959,64 @@ export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
               </div>
             </div>
 
-            <div className="pt-2 flex justify-end">
+            {/* Auto-Merge Notice */}
+            {selectedComplaint.isMerged && (
+              <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl text-xs text-purple-900 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-purple-600 shrink-0" />
+                <span>
+                  <strong>Spatial Auto-Merge:</strong> Clustered with matching report ~50m across the road into a unified municipal work order.
+                </span>
+              </div>
+            )}
+
+            <div className="pt-2 flex items-center justify-between gap-2 flex-wrap">
               <button
                 type="button"
-                onClick={() => setSelectedComplaint(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                onClick={() => handleToggleFollow(selectedComplaint.id)}
+                disabled={followingLoading}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  selectedComplaint.isFollowing
+                    ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
+                    : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
+                }`}
+                title={
+                  selectedComplaint.isFollowing
+                    ? 'Click to unfollow report updates'
+                    : 'Follow this report to receive in-app notifications on all updates'
+                }
               >
-                Close
+                {selectedComplaint.isFollowing ? (
+                  <BellRing className="w-3.5 h-3.5 text-white" />
+                ) : (
+                  <Bell className="w-3.5 h-3.5 text-slate-500" />
+                )}
+                <span>{selectedComplaint.isFollowing ? 'Following' : 'Follow This Report'} ({selectedComplaint.followersCount || 1})</span>
               </button>
+
+              <div className="flex items-center gap-2">
+                {onTrackNavigate && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const ref = selectedComplaint.reference;
+                      setSelectedComplaint(null);
+                      onTrackNavigate(ref);
+                    }}
+                    className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Track Full Details</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedComplaint(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>

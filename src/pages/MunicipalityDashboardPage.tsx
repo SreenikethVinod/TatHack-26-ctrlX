@@ -30,6 +30,7 @@ import { api } from '../lib/api';
 import { Complaint, ComplaintHistoryEntry, OfficialNote } from '../types';
 import { StatusBadge } from '../components/StatusBadge';
 import { PriorityBadge } from '../components/PriorityBadge';
+import { PhotoVerificationBadge } from '../components/PhotoVerificationBadge';
 import { BudgetCostBreakdown } from '../components/BudgetCostBreakdown';
 import { useAuth } from '../context/AuthContext';
 
@@ -740,6 +741,17 @@ export const MunicipalityDashboardPage: React.FC = () => {
                     </span>
                     <StatusBadge status={c.status} />
                     <PriorityBadge priority={c.priority} />
+                    {c.imageUrl && (
+                      <PhotoVerificationBadge
+                        imageUrl={c.imageUrl}
+                        photoFingerprint={c.photoFingerprint}
+                        photoMetadata={c.photoMetadata}
+                        isFlaggedLocationMismatch={c.isFlaggedLocationMismatch}
+                        locationMatchStatus={c.locationMatchStatus}
+                        photoDistanceMeters={c.photoDistanceMeters}
+                        compact
+                      />
+                    )}
                     <span className="text-xs text-slate-500">
                       Reported by <strong>{c.reporterName}</strong> on {new Date(c.createdAt).toLocaleDateString()}
                     </span>
@@ -1294,12 +1306,20 @@ export const MunicipalityDashboardPage: React.FC = () => {
               </div>
 
               {selectedComplaint.imageUrl && (
-                <div>
-                  <div className="text-xs font-bold text-slate-700 mb-1.5">Citizen Photo Evidence</div>
+                <div className="space-y-2">
+                  <div className="text-xs font-bold text-slate-700">Citizen Photo Evidence</div>
                   <img
                     src={selectedComplaint.imageUrl}
                     alt="Evidence"
                     className="w-full h-48 object-cover rounded-xl border border-slate-200"
+                  />
+                  <PhotoVerificationBadge
+                    imageUrl={selectedComplaint.imageUrl}
+                    photoFingerprint={selectedComplaint.photoFingerprint}
+                    photoMetadata={selectedComplaint.photoMetadata}
+                    isFlaggedLocationMismatch={selectedComplaint.isFlaggedLocationMismatch}
+                    locationMatchStatus={selectedComplaint.locationMatchStatus}
+                    photoDistanceMeters={selectedComplaint.photoDistanceMeters}
                   />
                 </div>
               )}

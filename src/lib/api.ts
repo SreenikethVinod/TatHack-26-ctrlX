@@ -1,5 +1,4 @@
 import {
-  AIVerificationResult,
   AnalyticsData,
   Complaint,
   ComplaintCategory,
@@ -135,25 +134,19 @@ export const api = {
     longitude?: number | null;
     imageUrl?: string;
     safetyRisk: boolean;
-  }): Promise<{ success: boolean; complaint: Complaint; verification?: AIVerificationResult; message: string }> {
+    photoFingerprint?: string | null;
+    photoMetadata?: any | null;
+    photoDistanceMeters?: number | null;
+    isFlaggedLocationMismatch?: boolean;
+    locationMatchStatus?: string;
+  }): Promise<{
+    success: boolean;
+    complaint: Complaint;
+    message: string;
+    autoMerged?: boolean;
+    canonicalReference?: string | null;
+  }> {
     return request('/complaints', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  },
-
-  async verifyComplaint(payload: {
-    title: string;
-    description: string;
-    category: ComplaintCategory;
-    address: string;
-    locality?: string;
-    latitude?: number | null;
-    longitude?: number | null;
-    imageUrl?: string;
-    safetyRisk?: boolean;
-  }): Promise<{ success: boolean; verification: AIVerificationResult }> {
-    return request('/complaints/verify', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
@@ -203,6 +196,32 @@ export const api = {
 
   async voteComplaint(id: string): Promise<{ success: boolean; votesCount: number; hasUserVoted?: boolean; message: string }> {
     return request(`/complaints/${id}/votes`, {
+      method: 'POST',
+    });
+  },
+
+  async followComplaint(id: string): Promise<{ success: boolean; isFollowing: boolean; followersCount: number; message: string }> {
+    return request(`/complaints/${id}/follow`, {
+      method: 'POST',
+    });
+  },
+
+  async getFollowStatus(id: string): Promise<{ isFollowing: boolean; followersCount: number }> {
+    return request(`/complaints/${id}/follow-status`);
+  },
+
+  async getNotifications(): Promise<{ success: boolean; notifications: any[]; unreadCount: number }> {
+    return request('/notifications');
+  },
+
+  async markNotificationRead(id: string): Promise<{ success: boolean }> {
+    return request(`/notifications/${id}/read`, {
+      method: 'PATCH',
+    });
+  },
+
+  async markAllNotificationsRead(): Promise<{ success: boolean }> {
+    return request('/notifications/mark-all-read', {
       method: 'POST',
     });
   },

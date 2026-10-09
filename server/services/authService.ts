@@ -192,16 +192,27 @@ export class AuthService {
   constructor(private database: Database.Database = db) {}
 
   public getUserById(id: string): UserResponse | null {
+    let resolvedId = id;
+    if (resolvedId === 'user-citizen-primary') resolvedId = 'user-citizen-1';
+    if (resolvedId === 'user-citizen-secondary') resolvedId = 'user-citizen-2';
+    if (resolvedId === 'user-muni-primary') resolvedId = 'user-official-1';
+    if (resolvedId === 'user-district-primary') resolvedId = 'user-district-1';
+
     const row = this.database
       .prepare('SELECT * FROM users WHERE id = ?')
-      .get(id) as UserEntity | undefined;
+      .get(resolvedId) as UserEntity | undefined;
     return row ? serializeUser(row) : null;
   }
 
   public getUserByEmail(email: string): UserEntity | null {
+    let searchEmail = email.toLowerCase().trim();
+    if (searchEmail === 'aisha.chen@citizen.demo') searchEmail = 'citizen@civicpulse.org';
+    if (searchEmail === 'marcus.vance@gov.demo') searchEmail = 'municipality@civicpulse.org';
+    if (searchEmail === 'elena.rostova@district.demo') searchEmail = 'district@civicpulse.org';
+
     const row = this.database
       .prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)')
-      .get(email) as UserEntity | undefined;
+      .get(searchEmail) as UserEntity | undefined;
     return row || null;
   }
 

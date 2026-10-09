@@ -28,24 +28,6 @@ export interface User {
   createdAt: string;
 }
 
-export interface AIVerificationResult {
-  isAuthentic: boolean;             // True if real camera photo, false if AI-generated or spoofed
-  authenticityScore: number;        // 0 to 100 percentage confidence of real physical capture
-  isRelevant: boolean;              // True if image directly depicts reported municipal issue
-  relevanceScore: number;           // 0 to 100 percentage relevance to category & description
-  aiGeneratedProbability: number;   // 0 to 100 percentage likelihood of synthetic/diffusion generation
-  detectedObjects: string[];        // Visual entities identified (e.g., ["asphalt pothole", "standing water"])
-  visualSeverity: PriorityLevel;    // AI-assessed severity tier: 'Low' | 'Medium' | 'High' | 'Critical'
-  severityScore: number;            // 0 to 100 calculated hazard & mobility score
-  severityRationale: string[];      // Explanations for severity categorization
-  corroboratingReportsCount: number;// Nearby matching complaints within proximity (< 600m)
-  spatialClusterInfo?: string;      // Geographic context and cluster corroboration summary
-  fraudFlag: boolean;               // Triggered if AI-generated, irrelevant, or duplicated
-  fraudReason?: string;             // Detailed explanation if flagged
-  verdict: 'VERIFIED_REAL' | 'SUSPICIOUS_AI' | 'IRRELEVANT' | 'NEEDS_INSPECTION';
-  analyzedAt: string;               // ISO timestamp of verification
-}
-
 export interface Complaint {
   id: string;
   reference: string;
@@ -74,7 +56,6 @@ export interface Complaint {
   votesCount: number;
   slaHours: number;
   hasUserVoted?: boolean;
-  aiVerification?: AIVerificationResult;
   ackDeadline?: string | null;
   acknowledgedAt?: string | null;
   acknowledgedBy?: string | null;
@@ -94,6 +75,31 @@ export interface Complaint {
   mergedCount?: number;
   isMerged?: boolean;
   mergedWithReference?: string | null;
+  photoFingerprint?: string | null;
+  photoMetadata?: PhotoVerificationMetadata | null;
+  isFlaggedLocationMismatch?: boolean;
+  locationMatchStatus?: 'VERIFIED' | 'FLAGGED_MISMATCH' | 'NO_PHOTO';
+  photoDistanceMeters?: number | null;
+}
+
+export interface PhotoVerificationMetadata {
+  capturedAt: string;
+  captureSource: 'in_app_camera';
+  dimensions: { width: number; height: number };
+  deviceGps?: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+  } | null;
+  reportedGps?: {
+    latitude: number;
+    longitude: number;
+  } | null;
+  distanceMeters?: number | null;
+  fingerprint: string;
+  isFlagged: boolean;
+  status: 'VERIFIED' | 'FLAGGED_MISMATCH' | 'NO_PHOTO';
+  notes?: string;
 }
 
 export interface NotificationItem {
@@ -114,6 +120,7 @@ export interface ComplaintHistoryEntry {
   complaintId: string;
   previousStatus: string;
   newStatus: string;
+  eventType?: string;
   actorId: string;
   actorName: string;
   actorRole: string;

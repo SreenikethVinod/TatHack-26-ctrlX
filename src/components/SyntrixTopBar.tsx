@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Search,
   Plus,
@@ -11,8 +11,15 @@ import {
   User,
   Zap,
   Flame,
+  Bell,
+  Check,
+  CheckCheck,
+  Sparkles,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../lib/api';
+import { NotificationItem } from '../types';
 
 interface Props {
   onNavigate: (tab: string, ref?: string) => void;
@@ -23,6 +30,28 @@ export const SyntrixTopBar: React.FC<Props> = ({ onNavigate }) => {
   const { currentUser, isDistrictAdmin, isMunicipalityAdmin, isCitizen, logout } = useAuth();
   const [searchInput, setSearchInput] = useState('');
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+
+  const fetchNotifications = async () => {
+    if (!currentUser) return;
+    try {
+      const res = await api.getNotifications();
+      if (res && res.notifications) {
+        setNotifications(res.notifications);
+        setUnreadCount(res.unreadCount || 0);
+      }
+    } catch {
+      // ignore transient polling errors
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 10000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,6 +160,104 @@ export const SyntrixTopBar: React.FC<Props> = ({ onNavigate }) => {
           <MapPin className="w-3.5 h-3.5 text-slate-600" />
           <span>Civic Map</span>
         </button>
+
+        {/* Live Notifications Bell Dropdown */}
+        {currentUser && (
+          <div className="relative">
+            <button
+              onClick={() => {
+                setNotifDropdownOpen(!notifDropdownOpen);
+                setUserDropdownOpen(false);
+                fetchNotifications();
+              }}
+              className="relative p-2 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-slate-700 transition-colors cursor-pointer flex items-center justify-center"
+              title="Report updates and notifications"
+            >
+              <Bell className="w-4 h-4 text-slate-700" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-rose-600 text-[9px] font-black text-white animate-pulse">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+
+            {notifDropdownOpen && (
+              <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 p-3 z-50 shadow-xl animate-in fade-in zoom-in-95 duration-100">
+                <div className="flex items-center justify-between pb-2.5 mb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-xs text-slate-900 tracking-tight">Report Updates</span>
+                    {unreadCount > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-[10px] font-bold">
+                        {unreadCount} new
+                      </span>
+                    )}
+                  </div>
+                  {unreadCount > 0 && (
+                    <button
+                      onClick={async () => {
+                        await api.markAllNotificationsRead();
+                        fetchNotifications();
+                      }}
+                      className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                    >
+                      <CheckCheck className="w-3 h-3" />
+                      <span>Mark all read</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="max-h-80 overflow-y-auto space-y-2 divide-y divide-slate-50">
+                  {notifications.length === 0 ? (
+                    <div className="py-6 text-center text-slate-400 text-xs">
+                      <Bell className="w-6 h-6 mx-auto mb-2 text-slate-300 stroke-[1.5]" />
+                      <p className="font-medium text-slate-600">No notifications yet</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Follow reports to receive instant updates when work is assigned or resolved.
+                      </p>
+                    </div>
+                  ) : (
+                    notifications.map((n) => (
+                      <div
+                        key={n.id}
+                        onClick={async () => {
+                          if (!n.read) {
+                            await api.markNotificationRead(n.id);
+                          }
+                          setNotifDropdownOpen(false);
+                          if (n.complaintReference) {
+                            onNavigate('track', n.complaintReference);
+                          }
+                        }}
+                        className={`pt-2 first:pt-0 p-2 rounded-xl text-left cursor-pointer transition-colors ${
+                          n.read ? 'hover:bg-slate-50 opacity-80' : 'bg-indigo-50/50 hover:bg-indigo-50 border-l-2 border-indigo-600'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <span className="font-bold text-[11px] text-slate-900 flex items-center gap-1">
+                            {n.type === 'AUTO_MERGED' && <Sparkles className="w-3 h-3 text-indigo-600" />}
+                            {n.title}
+                          </span>
+                          <span className="font-mono text-[10px] text-indigo-600 font-bold bg-indigo-50 px-1.5 py-0.5 rounded">
+                            {n.complaintReference}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 leading-relaxed line-clamp-2">
+                          {n.message}
+                        </p>
+                        <div className="flex items-center justify-between mt-1 text-[9px] text-slate-400 font-medium">
+                          <span>{new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          <span className="text-indigo-600 flex items-center gap-0.5 font-semibold">
+                            View report <ExternalLink className="w-2.5 h-2.5" />
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* User Account / Role Menu */}
         {currentUser ? (

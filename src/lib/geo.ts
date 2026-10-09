@@ -96,3 +96,79 @@ export async function detectRealLocation(): Promise<GeoResult> {
     );
   });
 }
+
+/**
+ * Calculates Great-Circle distance in meters between two lat/lng points.
+ */
+export function haversineDistanceMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371000; // Earth radius in meters
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c);
+}
+
+/**
+ * Reverse geocodes specific lat/lng coordinates to a human-readable street address and locality.
+ */
+export async function reverseGeocodeCoordinates(
+  lat: number,
+  lng: number
+): Promise<{ address: string; locality: string }> {
+  const roundedLat = Math.round(lat * 100000) / 100000;
+  const roundedLng = Math.round(lng * 100000) / 100000;
+
+  // 1. Primary: Server reverse geocoding proxy
+  try {
+    const res = await fetch(`/api/geocode/reverse?lat=${roundedLat}&lng=${roundedLng}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.address) {
+        return {
+          address: data.address,
+          locality: data.locality || data.city || 'Local Ward',
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Server geocode proxy warning:', err);
+  }
+
+  // 2. Secondary: BigDataCloud free client reverse geocoder
+  try {
+    const bdcRes = await fetch(
+      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${roundedLat}&longitude=${roundedLng}&localityLanguage=en`
+    );
+    if (bdcRes.ok) {
+      const bdcData = await bdcRes.json();
+      const locality = bdcData.locality || bdcData.principalSubdivision || 'Local Ward';
+      const city = bdcData.city || bdcData.locality || 'Metro Area';
+      const street = bdcData.locality || bdcData.principalSubdivisionDescription || '';
+      const formatted = `${street ? `${street}, ` : ''}${city}${
+        bdcData.principalSubdivision ? `, ${bdcData.principalSubdivision}` : ''
+      }`.trim();
+      return {
+        address: formatted || `Location near ${city}`,
+        locality,
+      };
+    }
+  } catch (err) {
+    console.warn('Client geocode warning:', err);
+  }
+
+  return {
+    address: `GPS Pin: ${roundedLat.toFixed(5)}, ${roundedLng.toFixed(5)}`,
+    locality: `Ward (${roundedLat.toFixed(2)}, ${roundedLng.toFixed(2)})`,
+  };
+}
+
+

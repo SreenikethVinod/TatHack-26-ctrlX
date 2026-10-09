@@ -1,6 +1,6 @@
 {
   "name": "CivicPulse - Civic Issue Reporting & Governance Platform",
   "description": "CivicPulse empowers citizens to report civic problems, track resolutions transparently, and equips municipal officials with a real-time smart triage and accountability dashboard.",
-  "requestFramePermissions": ["geolocation"],
+  "requestFramePermissions": ["geolocation", "camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

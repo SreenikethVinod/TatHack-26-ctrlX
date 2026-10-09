@@ -25,11 +25,14 @@ import {
   Flame,
   ShieldCheck,
   MessageSquare,
+  Bell,
+  BellRing,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { Complaint, ComplaintCategory, PriorityLevel } from '../types';
 import { StatusBadge } from '../components/StatusBadge';
 import { PriorityBadge } from '../components/PriorityBadge';
+import { PhotoVerificationBadge } from '../components/PhotoVerificationBadge';
 import { useAuth } from '../context/AuthContext';
 
 interface Props {
@@ -52,8 +55,9 @@ export const PublicFeedPage: React.FC<Props> = ({
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'endorsed' | 'recent' | 'priority'>('endorsed');
 
-  // Voting feedback states
+  // Voting & Follow feedback states
   const [votingId, setVotingId] = useState<string | null>(null);
+  const [followingId, setFollowingId] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<{ id: string; text: string; success: boolean } | null>(null);
   const [copiedRef, setCopiedRef] = useState<string | null>(null);
 
@@ -115,6 +119,48 @@ export const PublicFeedPage: React.FC<Props> = ({
       setTimeout(() => setToastMsg(null), 3500);
     } finally {
       setVotingId(null);
+    }
+  };
+
+  // Handle follow report toggle
+  const handleToggleFollow = async (complaintId: string) => {
+    if (!currentUser) {
+      alert('Please sign in to follow reports.');
+      return;
+    }
+
+    setFollowingId(complaintId);
+    try {
+      const res = await api.followComplaint(complaintId);
+      setComplaints((prev) =>
+        prev.map((c) => {
+          if (c.id === complaintId) {
+            return {
+              ...c,
+              isFollowing: res.isFollowing,
+              followersCount: res.followersCount,
+            };
+          }
+          return c;
+        })
+      );
+
+      setToastMsg({
+        id: complaintId,
+        text: res.message || (res.isFollowing ? 'You are now following this report! You will receive live updates when progress occurs.' : 'You have unfollowed this report.'),
+        success: true,
+      });
+
+      setTimeout(() => setToastMsg(null), 3500);
+    } catch (err: any) {
+      setToastMsg({
+        id: complaintId,
+        text: err.message || 'Could not update follow status.',
+        success: false,
+      });
+      setTimeout(() => setToastMsg(null), 3500);
+    } finally {
+      setFollowingId(null);
     }
   };
 
@@ -533,6 +579,23 @@ export const PublicFeedPage: React.FC<Props> = ({
                   <div className="flex items-center gap-2 flex-wrap">
                     <StatusBadge status={complaint.status} />
                     <PriorityBadge priority={complaint.priority} />
+                    {complaint.imageUrl && (
+                      <PhotoVerificationBadge
+                        imageUrl={complaint.imageUrl}
+                        photoFingerprint={complaint.photoFingerprint}
+                        photoMetadata={complaint.photoMetadata}
+                        isFlaggedLocationMismatch={complaint.isFlaggedLocationMismatch}
+                        locationMatchStatus={complaint.locationMatchStatus}
+                        photoDistanceMeters={complaint.photoDistanceMeters}
+                        compact
+                      />
+                    )}
+                    {complaint.isMerged && (
+                      <span className="px-2.5 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold flex items-center gap-1" title="Spatial Auto-Merge: Clustered with nearby report (~50m across road)">
+                        <Sparkles className="w-3 h-3 text-purple-600" />
+                        <span>Auto-Merged (~50m)</span>
+                      </span>
+                    )}
 
                     {/* Reference ID Pill */}
                     <button
@@ -576,11 +639,19 @@ export const PublicFeedPage: React.FC<Props> = ({
 
                   {/* Photo Evidence if uploaded */}
                   {complaint.imageUrl && (
-                    <div className="pt-1">
+                    <div className="pt-1 space-y-2">
                       <img
                         src={complaint.imageUrl}
                         alt={complaint.title}
                         className="w-full max-h-72 object-cover rounded-2xl border border-slate-200 shadow-2xs"
+                      />
+                      <PhotoVerificationBadge
+                        imageUrl={complaint.imageUrl}
+                        photoFingerprint={complaint.photoFingerprint}
+                        photoMetadata={complaint.photoMetadata}
+                        isFlaggedLocationMismatch={complaint.isFlaggedLocationMismatch}
+                        locationMatchStatus={complaint.locationMatchStatus}
+                        photoDistanceMeters={complaint.photoDistanceMeters}
                       />
                     </div>
                   )}
@@ -653,32 +724,60 @@ export const PublicFeedPage: React.FC<Props> = ({
                   </div>
 
                   {/* Actions Bar */}
-                  <div className="flex items-center justify-between gap-3 pt-1">
-                    {/* Big Interactive Endorsement Button */}
-                    <button
-                      type="button"
-                      onClick={() => handleEndorse(complaint.id)}
-                      disabled={votingId === complaint.id}
-                      className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                        hasVoted
-                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
-                          : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200'
-                      }`}
-                      title={
-                        hasVoted
-                          ? 'You have endorsed this issue. Click to withdraw endorsement.'
-                          : 'Click to endorse and corroborate this issue as a neighbor.'
-                      }
-                    >
-                      <ThumbsUp
-                        className={`w-4 h-4 ${hasVoted ? 'fill-current text-white' : 'text-indigo-600'} ${
-                          votingId === complaint.id ? 'animate-bounce' : ''
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Big Interactive Endorsement Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleEndorse(complaint.id)}
+                        disabled={votingId === complaint.id}
+                        className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                          hasVoted
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                            : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200'
                         }`}
-                      />
-                      <span>
-                        {hasVoted ? '✓ You Endorsed' : 'Endorse Issue'} ({votesCount})
-                      </span>
-                    </button>
+                        title={
+                          hasVoted
+                            ? 'You have endorsed this issue. Click to withdraw endorsement.'
+                            : 'Click to endorse and corroborate this issue as a neighbor.'
+                        }
+                      >
+                        <ThumbsUp
+                          className={`w-4 h-4 ${hasVoted ? 'fill-current text-white' : 'text-indigo-600'} ${
+                            votingId === complaint.id ? 'animate-bounce' : ''
+                          }`}
+                        />
+                        <span>
+                          {hasVoted ? '✓ You Endorsed' : 'Endorse Issue'} ({votesCount})
+                        </span>
+                      </button>
+
+                      {/* Follow Report Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleFollow(complaint.id)}
+                        disabled={followingId === complaint.id}
+                        className={`px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                          complaint.isFollowing
+                            ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
+                            : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
+                        }`}
+                        title={
+                          complaint.isFollowing
+                            ? 'Following: You will receive real-time notifications when this report is updated. Click to unfollow.'
+                            : 'Follow this report to receive in-app notifications on all inspections, status updates & resolutions.'
+                        }
+                      >
+                        {complaint.isFollowing ? (
+                          <BellRing className="w-3.5 h-3.5 text-white" />
+                        ) : (
+                          <Bell className="w-3.5 h-3.5 text-slate-500" />
+                        )}
+                        <span>
+                          {complaint.isFollowing ? 'Following' : 'Follow Report'} ({complaint.followersCount || 1})
+                        </span>
+                      </button>
+                    </div>
 
                     {/* Quick navigation actions */}
                     <div className="flex items-center gap-2">

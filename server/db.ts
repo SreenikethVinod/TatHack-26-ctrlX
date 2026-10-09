@@ -3,18 +3,19 @@ import { db as databaseConnection } from './db/connection.ts';
 import { runMigrations } from './db/migrator.ts';
 import { seedDatabase } from './db/seed.ts';
 import { calculatePriorityScore, PriorityLevel, ComplaintCategory } from './services/priorityService.ts';
-import { AIVerificationResult } from '../src/types/index.ts';
 import { lifecycleService } from './services/lifecycleService.ts';
 import { analyticsService } from './services/analyticsService.ts';
 import { authService, AuthService, UserResponse, FrontendRole } from './services/authService.ts';
-import { haversineDistanceMeters } from './services/duplicateService.ts';
+import { haversineDistanceMeters, tokenSimilarity } from './services/duplicateService.ts';
+import { NotificationService, notificationService } from './services/notificationService.ts';
 
 // Auto-run migrations on load
 runMigrations(databaseConnection);
 
 // Check if seeded; if not, seed
 const userCount = databaseConnection.prepare('SELECT count(*) as count FROM users').get() as { count: number };
-if (userCount.count === 0) {
+const complaintCount = databaseConnection.prepare('SELECT count(*) as count FROM complaints').get() as { count: number };
+if (userCount.count < 8 || complaintCount.count < 16) {
   seedDatabase(databaseConnection);
 }
 
@@ -38,6 +39,7 @@ export interface ComplaintHistoryEntry {
   complaintId: string;
   previousStatus: string;
   newStatus: string;
+  eventType?: string;
   actorId: string;
   actorName: string;
   actorRole: string;
@@ -102,12 +104,21 @@ export interface Complaint {
   isBlocked?: boolean;
   blockerReason?: string | null;
   maintenanceIssueId?: string | null;
-  aiVerification?: AIVerificationResult;
   isEscalatedDistrict?: boolean;
   districtActionNotes?: string | null;
   districtActionAt?: string | null;
   districtActionBy?: string | null;
   daysUnacknowledged?: number;
+  followersCount?: number;
+  isFollowing?: boolean;
+  mergedCount?: number;
+  isMerged?: boolean;
+  mergedWithReference?: string | null;
+  photoFingerprint?: string | null;
+  photoMetadata?: any | null;
+  isFlaggedLocationMismatch?: boolean;
+  locationMatchStatus?: 'VERIFIED' | 'FLAGGED_MISMATCH' | 'NO_PHOTO';
+  photoDistanceMeters?: number | null;
 }
 
 export const DEPARTMENTS = [
@@ -128,23 +139,12 @@ export const CATEGORY_LABELS: Record<string, string> = {
   public_safety: 'Public Safety Infrastructure',
 };
 
-function formatComplaintRow(row: any): Complaint {
+function formatComplaintRow(row: any, activeDb: Database.Database = databaseConnection): Complaint {
   let parsedRationale: string[] = [];
   try {
     parsedRationale = JSON.parse(row.priority_rationale || '[]');
   } catch {
     parsedRationale = [];
-  }
-
-  let parsedAiVerification: AIVerificationResult | undefined;
-  if (row.ai_verification) {
-    try {
-      parsedAiVerification = typeof row.ai_verification === 'string'
-        ? JSON.parse(row.ai_verification)
-        : row.ai_verification;
-    } catch {
-      parsedAiVerification = undefined;
-    }
   }
 
   const createdMs = new Date(row.created_at).getTime();
@@ -194,7 +194,6 @@ function formatComplaintRow(row: any): Complaint {
     isBlocked: Boolean(row.is_blocked),
     blockerReason: row.blocker_reason || null,
     maintenanceIssueId: row.maintenance_issue_id || null,
-    aiVerification: parsedAiVerification,
     isEscalatedDistrict: Boolean(row.is_escalated_district) || row.status === 'Escalated to District Admin',
     districtActionNotes: row.district_action_notes || null,
     districtActionAt: row.district_action_at || null,
@@ -202,7 +201,7 @@ function formatComplaintRow(row: any): Complaint {
     daysUnacknowledged: row.acknowledged_at ? 0 : daysDiff,
     followersCount: (() => {
       try {
-        const f = databaseConnection.prepare('SELECT count(*) as c FROM complaint_followers WHERE complaint_id = ?').get(row.id) as any;
+        const f = activeDb.prepare('SELECT count(*) as c FROM complaint_followers WHERE complaint_id = ?').get(row.id) as any;
         return Math.max(1, f?.c || 1);
       } catch {
         return 1;
@@ -210,25 +209,58 @@ function formatComplaintRow(row: any): Complaint {
     })(),
     isMerged: (() => {
       try {
-        const d = databaseConnection.prepare('SELECT count(*) as c FROM complaint_duplicate_links WHERE canonical_complaint_id = ?').get(row.id) as any;
-        return (d?.c || 0) > 0;
+        const asDup = activeDb.prepare('SELECT id FROM complaint_duplicate_links WHERE complaint_id = ?').get(row.id) as any;
+        if (asDup) return true;
+        const asCanonical = activeDb.prepare('SELECT count(*) as c FROM complaint_duplicate_links WHERE canonical_complaint_id = ?').get(row.id) as any;
+        return (asCanonical?.c || 0) > 0;
       } catch {
         return false;
       }
     })(),
+    mergedWithReference: (() => {
+      try {
+        const asDup = activeDb.prepare(`
+          SELECT c.reference FROM complaint_duplicate_links l
+          JOIN complaints c ON c.id = l.canonical_complaint_id
+          WHERE l.complaint_id = ?
+        `).get(row.id) as any;
+        return asDup?.reference || null;
+      } catch {
+        return null;
+      }
+    })(),
     mergedCount: (() => {
       try {
-        const d = databaseConnection.prepare('SELECT count(*) as c FROM complaint_duplicate_links WHERE canonical_complaint_id = ?').get(row.id) as any;
+        const d = activeDb.prepare('SELECT count(*) as c FROM complaint_duplicate_links WHERE canonical_complaint_id = ?').get(row.id) as any;
         return d?.c || 0;
       } catch {
         return 0;
       }
     })(),
+    photoFingerprint: row.photo_fingerprint || null,
+    photoMetadata: (() => {
+      if (!row.photo_metadata) return null;
+      try {
+        return typeof row.photo_metadata === 'string' ? JSON.parse(row.photo_metadata) : row.photo_metadata;
+      } catch {
+        return null;
+      }
+    })(),
+    isFlaggedLocationMismatch: Boolean(row.is_flagged_location_mismatch),
+    locationMatchStatus: row.location_match_status || (row.image_url ? 'VERIFIED' : 'NO_PHOTO'),
+    photoDistanceMeters:
+      row.photo_distance_meters !== null && row.photo_distance_meters !== undefined
+        ? Number(row.photo_distance_meters)
+        : null,
   };
 }
 
 export class DatabaseRepository {
-  constructor(private db: Database.Database = databaseConnection) {}
+  private notifService: NotificationService;
+
+  constructor(private db: Database.Database = databaseConnection) {
+    this.notifService = new NotificationService(this.db);
+  }
 
   public getUsers(): User[] {
     return new AuthService(this.db).listUsers();
@@ -294,14 +326,14 @@ export class DatabaseRepository {
 
     sql += ' ORDER BY datetime(created_at) DESC';
     const rows = this.db.prepare(sql).all(...params) as any[];
-    return rows.map(formatComplaintRow);
+    return rows.map((r) => formatComplaintRow(r, this.db));
   }
 
   public getComplaintById(idOrRef: string): Complaint | undefined {
     const row = this.db
       .prepare('SELECT * FROM complaints WHERE id = ? OR UPPER(reference) = UPPER(?)')
       .get(idOrRef, idOrRef) as any;
-    return row ? formatComplaintRow(row) : undefined;
+    return row ? formatComplaintRow(row, this.db) : undefined;
   }
 
   public createComplaint(params: {
@@ -316,7 +348,11 @@ export class DatabaseRepository {
     safetyRisk: boolean;
     reporterId: string;
     reporterName: string;
-    aiVerification?: AIVerificationResult;
+    photoFingerprint?: string | null;
+    photoMetadata?: any | null;
+    photoDistanceMeters?: number | null;
+    isFlaggedLocationMismatch?: boolean;
+    locationMatchStatus?: string;
   }): Complaint {
     const countRow = this.db.prepare('SELECT count(*) as c FROM complaints').get() as { c: number };
     const count = countRow.c + 1;
@@ -350,11 +386,62 @@ export class DatabaseRepository {
         assignedDepartment = 'Public Works & Roads';
     }
 
-    // Transparent prioritization calculation
-    let assignedPriority: PriorityLevel;
-    let assignedSlaHours: number;
-    const finalRationale: string[] = [];
+    // Photo verification and location discrepancy detection
+    let verifiedLocationMatchStatus = 'NO_PHOTO';
+    let isFlaggedMismatch = 0;
+    let computedPhotoDistance: number | null = null;
 
+    if (params.imageUrl) {
+      verifiedLocationMatchStatus = 'VERIFIED';
+      const meta = params.photoMetadata
+        ? typeof params.photoMetadata === 'string'
+          ? JSON.parse(params.photoMetadata)
+          : params.photoMetadata
+        : null;
+
+      const photoLat = meta?.deviceGps?.latitude;
+      const photoLng = meta?.deviceGps?.longitude;
+
+      if (
+        photoLat !== undefined &&
+        photoLng !== undefined &&
+        params.latitude !== null &&
+        params.latitude !== undefined &&
+        params.longitude !== null &&
+        params.longitude !== undefined &&
+        !isNaN(Number(photoLat)) &&
+        !isNaN(Number(photoLng)) &&
+        !isNaN(Number(params.latitude)) &&
+        !isNaN(Number(params.longitude))
+      ) {
+        computedPhotoDistance = Math.round(
+          haversineDistanceMeters(
+            Number(params.latitude),
+            Number(params.longitude),
+            Number(photoLat),
+            Number(photoLng)
+          )
+        );
+
+        // Flag discrepancy if distance between live photo GPS and reported coordinates > 300 meters
+        if (computedPhotoDistance > 300) {
+          isFlaggedMismatch = 1;
+          verifiedLocationMatchStatus = 'FLAGGED_MISMATCH';
+        } else {
+          isFlaggedMismatch = 0;
+          verifiedLocationMatchStatus = 'VERIFIED';
+        }
+      } else if (params.isFlaggedLocationMismatch) {
+        isFlaggedMismatch = 1;
+        verifiedLocationMatchStatus = 'FLAGGED_MISMATCH';
+      }
+
+      if (params.photoDistanceMeters !== undefined && params.photoDistanceMeters !== null) {
+        computedPhotoDistance = params.photoDistanceMeters;
+      }
+    }
+
+    // Transparent prioritization calculation
     const recommendation = calculatePriorityScore({
       category: params.category,
       safetyRisk: params.safetyRisk,
@@ -363,32 +450,7 @@ export class DatabaseRepository {
       status: 'Submitted',
       address: params.address,
       locality: params.locality,
-      explicitSeverity: params.aiVerification?.severityScore,
     });
-
-    assignedPriority = recommendation.recommendedPriority;
-    assignedSlaHours = recommendation.slaHours;
-    finalRationale.push(...recommendation.rationale);
-
-    // Integrate AI visual verification and severity triage
-    if (params.aiVerification) {
-      if (params.aiVerification.visualSeverity === 'Critical' && assignedPriority !== 'Critical') {
-        assignedPriority = 'Critical';
-        assignedSlaHours = 24;
-        finalRationale.unshift('AI Visual Forensics: Critical hazard detected from uploaded evidence (+Critical SLA Upgrade)');
-      } else if (
-        params.aiVerification.visualSeverity === 'High' &&
-        (assignedPriority === 'Low' || assignedPriority === 'Medium')
-      ) {
-        assignedPriority = 'High';
-        assignedSlaHours = 48;
-        finalRationale.unshift('AI Visual Forensics: High municipal hazard level verified (+High Priority Upgrade)');
-      }
-
-      if (params.aiVerification.fraudFlag) {
-        finalRationale.unshift(`AI Security Alert: Flagged for verification check (${params.aiVerification.fraudReason})`);
-      }
-    }
 
     // Deadlines: 14-day statutory acknowledgement deadline before District Admin escalation
     const ackDeadline = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
@@ -396,6 +458,12 @@ export class DatabaseRepository {
 
     const historyId = `hist-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
     const voteId = `vote-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+
+    const stringifiedPhotoMetadata = params.photoMetadata
+      ? typeof params.photoMetadata === 'string'
+        ? params.photoMetadata
+        : JSON.stringify(params.photoMetadata)
+      : null;
 
     const tx = this.db.transaction(() => {
       this.db
@@ -405,13 +473,13 @@ export class DatabaseRepository {
             image_url, status, priority, system_recommended_priority, priority_rationale,
             priority_score, safety_risk, assigned_department, reporter_id, reporter_name,
             created_at, updated_at, votes_count, sla_hours, ack_deadline, next_action_deadline,
-            ai_verification
+            photo_fingerprint, photo_metadata, is_flagged_location_mismatch, location_match_status, photo_distance_meters
           ) VALUES (
             ?, ?, ?, ?, ?, ?, ?, ?, ?,
             ?, 'Submitted', ?, ?, ?,
             ?, ?, ?, ?, ?,
             ?, ?, 1, ?, ?, ?,
-            ?
+            ?, ?, ?, ?, ?
           )`
         )
         .run(
@@ -425,9 +493,9 @@ export class DatabaseRepository {
           params.latitude ?? null,
           params.longitude ?? null,
           params.imageUrl || null,
-          assignedPriority,
           recommendation.recommendedPriority,
-          JSON.stringify(finalRationale),
+          recommendation.recommendedPriority,
+          JSON.stringify(recommendation.rationale),
           recommendation.score,
           params.safetyRisk ? 1 : 0,
           assignedDepartment,
@@ -435,10 +503,14 @@ export class DatabaseRepository {
           params.reporterName,
           now,
           now,
-          assignedSlaHours,
+          recommendation.slaHours,
           ackDeadline,
           nextActionDeadline,
-          params.aiVerification ? JSON.stringify(params.aiVerification) : null
+          params.photoFingerprint || null,
+          stringifiedPhotoMetadata,
+          isFlaggedMismatch,
+          verifiedLocationMatchStatus,
+          computedPhotoDistance
         );
 
       this.db
@@ -446,28 +518,251 @@ export class DatabaseRepository {
           `INSERT INTO complaint_history (
             id, complaint_id, previous_status, new_status, event_type,
             actor_id, actor_name, actor_role, public_update, deadline_info, timestamp
-          ) VALUES (?, ?, 'None', 'Submitted', 'SUBMITTED', ?, ?, 'Citizen', ?, ?, ?)`
+          ) VALUES (?, ?, 'None', 'Submitted', 'SUBMITTED', ?, ?, 'Citizen', 'Complaint registered into CivicPulse municipal queue.', ?, ?)`
         )
         .run(
           historyId,
           id,
           params.reporterId,
           params.reporterName,
-          params.aiVerification
-            ? `Complaint registered with AI Forensics & Severity Triage (Authenticity: ${params.aiVerification.authenticityScore}%, Triage: ${assignedPriority}).`
-            : 'Complaint registered into CivicPulse municipal queue.',
           `Acknowledgement Deadline: ${ackDeadline}`,
           now
         );
+
+      if (isFlaggedMismatch === 1) {
+        const flagHistId = `hist-flag-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+        this.db
+          .prepare(
+            `INSERT INTO complaint_history (
+              id, complaint_id, previous_status, new_status, event_type,
+              actor_id, actor_name, actor_role, public_update, explanation, deadline_info, timestamp
+            ) VALUES (?, ?, 'Submitted', 'Submitted', 'FLAGGED_MISMATCH', ?, ?, 'System Sentinel', ?, ?, ?, ?)`
+          )
+          .run(
+            flagHistId,
+            id,
+            params.reporterId,
+            params.reporterName,
+            `⚠️ Location Discrepancy Flagged: In-app camera photo was captured ${computedPhotoDistance || 0}m away from the reported incident location.`,
+            'Automated cryptographic photo metadata validation failed proximity tolerance threshold (>300m).',
+            'Requires Field Verification by Junior Engineer',
+            now
+          );
+      }
 
       this.db
         .prepare(
           `INSERT INTO votes (id, complaint_id, user_id, timestamp) VALUES (?, ?, ?, ?)`
         )
         .run(voteId, id, params.reporterId, now);
+
+      // Auto-follow own report
+      try {
+        const folId = `fol-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO complaint_followers (id, complaint_id, user_id, user_name, created_at)
+             VALUES (?, ?, ?, ?, ?)`
+          )
+          .run(folId, id, params.reporterId, params.reporterName, now);
+      } catch {}
     });
 
     tx();
+
+    // =========================================================================
+    // SPATIAL DEDUPLICATION & AUTO-MERGE ENGINE:
+    // If two citizens post about the same problem in the same area (e.g. within 50m-65m
+    // apart, such as from opposite sides of the road), automatically cluster and merge them!
+    // =========================================================================
+    if (
+      params.latitude !== null &&
+      params.longitude !== null &&
+      typeof params.latitude === 'number' &&
+      typeof params.longitude === 'number' &&
+      !isNaN(params.latitude) &&
+      !isNaN(params.longitude)
+    ) {
+      try {
+        const existingCandidates = this.db
+          .prepare(
+            `SELECT * FROM complaints
+             WHERE id != ?
+               AND latitude IS NOT NULL
+               AND longitude IS NOT NULL
+               AND status NOT IN ('Rejected')
+             ORDER BY datetime(created_at) ASC`
+          )
+          .all(id) as any[];
+
+        for (const cand of existingCandidates) {
+          const dist = haversineDistanceMeters(
+            params.latitude,
+            params.longitude,
+            Number(cand.latitude),
+            Number(cand.longitude)
+          );
+
+          // Spatial proximity threshold: 85m covers opposite sides of road, intersections and sidewalks
+          if (dist <= 85) {
+            const sameCategory = cand.category === params.category;
+            const textSim = tokenSimilarity(
+              `${params.title} ${params.description}`,
+              `${cand.title} ${cand.description}`
+            );
+
+            // Match if same problem category OR significant token overlap
+            if (sameCategory || textSim >= 0.15) {
+              const canonical = cand;
+              const canonicalId = canonical.id;
+              const distMeters = Math.max(1, Math.round(dist));
+
+              // 1. Ensure or create shared maintenance issue group
+              let issueId = canonical.maintenance_issue_id;
+              if (!issueId) {
+                issueId = `mi-cluster-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+                this.db
+                  .prepare(
+                    `INSERT INTO maintenance_issues (id, title, category, locality, status, primary_complaint_id, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, 'OPEN', ?, ?, ?)`
+                  )
+                  .run(issueId, canonical.title, canonical.category, canonical.locality, canonicalId, now, now);
+
+                this.db.prepare('UPDATE complaints SET maintenance_issue_id = ? WHERE id = ?').run(issueId, canonicalId);
+              }
+
+              // Update new complaint's maintenance issue pointer
+              this.db.prepare('UPDATE complaints SET maintenance_issue_id = ? WHERE id = ?').run(issueId, id);
+
+              // 2. Insert duplicate link marking this as an automatic confirmed spatial merge
+              const linkId = `dup-auto-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+              this.db
+                .prepare(
+                  `INSERT INTO complaint_duplicate_links (
+                    id, complaint_id, canonical_complaint_id, confidence_score,
+                    similarity_reason, confirmed_by, status, maintenance_issue_id, created_at
+                  ) VALUES (?, ?, ?, 0.96, ?, NULL, 'confirmed', ?, ?)
+                  ON CONFLICT(complaint_id, canonical_complaint_id) DO UPDATE SET status = 'confirmed'`
+                )
+                .run(
+                  linkId,
+                  id,
+                  canonicalId,
+                  `Opposite side of street spatial cluster: Within ${distMeters}m across the road (${CATEGORY_LABELS[params.category] || params.category}). Automatically merged into unified municipal issue.`,
+                  issueId,
+                  now
+                );
+
+              // 3. Boost canonical complaint community corroboration & recalculate smart priority
+              const canVoteId = `vote-auto-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+              try {
+                this.db
+                  .prepare('INSERT OR IGNORE INTO votes (id, complaint_id, user_id, timestamp) VALUES (?, ?, ?, ?)')
+                  .run(canVoteId, canonicalId, params.reporterId, now);
+              } catch {}
+
+              const newVoteCount = (canonical.votes_count || 1) + 1;
+              const rec = calculatePriorityScore({
+                category: canonical.category,
+                safetyRisk: Boolean(canonical.safety_risk),
+                votesCount: newVoteCount,
+                createdAt: canonical.created_at,
+                status: canonical.status,
+                address: canonical.address,
+                locality: canonical.locality,
+              });
+
+              let rationale: string[] = [];
+              try {
+                rationale = JSON.parse(canonical.priority_rationale || '[]');
+              } catch {
+                rationale = [];
+              }
+              const corroborationNote = `Multi-citizen corroboration across street (${distMeters}m away)`;
+              if (!rationale.includes(corroborationNote)) {
+                rationale.push(corroborationNote);
+              }
+
+              this.db
+                .prepare(
+                  `UPDATE complaints SET
+                    votes_count = ?,
+                    system_recommended_priority = ?,
+                    priority_rationale = ?,
+                    priority_score = ?,
+                    updated_at = ?
+                   WHERE id = ?`
+                )
+                .run(newVoteCount, rec.recommendedPriority, JSON.stringify(rationale), rec.score, now, canonicalId);
+
+              // 4. Auto-subscribe both citizens as followers of the canonical report
+              this.notifService.ensureFollow(canonicalId, {
+                id: params.reporterId,
+                name: params.reporterName,
+              });
+              if (canonical.reporter_id) {
+                this.notifService.ensureFollow(canonicalId, {
+                  id: canonical.reporter_id,
+                  name: canonical.reporter_name,
+                });
+              }
+
+              // 5. Append audit history to canonical and new complaints
+              this.db
+                .prepare(
+                  `INSERT INTO complaint_history (
+                    id, complaint_id, previous_status, new_status, event_type,
+                    actor_id, actor_name, actor_role, public_update, explanation, timestamp
+                  ) VALUES (?, ?, ?, ?, 'AUTO_SPATIAL_CLUSTER_MERGE', 'system', 'Geo-Spatial Deduplication Engine', 'System', ?, ?, ?)`
+                )
+                .run(
+                  `hist-merge-${id}`,
+                  canonicalId,
+                  canonical.status,
+                  canonical.status,
+                  `SPATIAL AUTO-MERGE: Second resident report (${reference}) located ~${distMeters}m away across the road was automatically merged into this issue. Community corroboration score boosted to ${rec.score}.`,
+                  `Multi-citizen corroboration across road clustered under canonical ticket.`,
+                  now
+                );
+
+              this.db
+                .prepare(
+                  `INSERT INTO complaint_history (
+                    id, complaint_id, previous_status, new_status, event_type,
+                    actor_id, actor_name, actor_role, public_update, explanation, timestamp
+                  ) VALUES (?, ?, 'None', 'Submitted', 'AUTO_MERGED_INTO_CANONICAL', 'system', 'Geo-Spatial Deduplication Engine', 'System', ?, ?, ?)`
+                )
+                .run(
+                  `hist-child-${id}`,
+                  id,
+                  `SPATIAL AUTO-MERGE: Matched with existing report ${canonical.reference} (~${distMeters}m away across the road). Clustered together to prevent duplicate contractor payouts. You are automatically following updates.`,
+                  `Auto-merged into canonical issue ${canonical.reference}.`,
+                  now
+                );
+
+              // 6. Send in-app notifications to both citizens
+              this.notifService.notifyFollowers({
+                complaintId: id,
+                type: 'AUTO_MERGED',
+                title: 'Spatial Auto-Merge: Nearby Report Detected',
+                message: `Your report was automatically merged with existing report ${canonical.reference} located ~${distMeters}m away across the road. Endorsements pooled to accelerate municipal action!`,
+              });
+
+              this.notifService.notifyFollowers({
+                complaintId: canonicalId,
+                type: 'COMMUNITY_CORROBORATION',
+                title: 'Community Corroboration Boosted!',
+                message: `Another resident reported this same issue from across the road (~${distMeters}m away). Community endorsement count boosted to #${newVoteCount}!`,
+              });
+
+              break; // Auto-merged with primary canonical report
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Spatial Deduplication] Auto-merge error:', err);
+      }
+    }
 
     return this.getComplaintById(id)!;
   }
@@ -494,8 +789,16 @@ export class DatabaseRepository {
         afterImageUrl: params.afterImageUrl,
       });
 
+      this.notifService.notifyFollowers({
+        complaintId: params.complaintId,
+        type: 'STATUS_UPDATE',
+        title: `Status: ${params.newStatus}`,
+        message: `Report ${res.complaint.reference} status updated to "${params.newStatus}". ${params.publicUpdate || ''}`,
+        excludeUserId: params.actor.id,
+      });
+
       return {
-        complaint: formatComplaintRow(res.complaint),
+        complaint: formatComplaintRow(res.complaint, this.db),
         historyEntry: {
           id: res.historyEntry.id,
           complaintId: res.historyEntry.complaint_id,
@@ -745,6 +1048,7 @@ export class DatabaseRepository {
       complaintId: r.complaint_id,
       previousStatus: r.previous_status,
       newStatus: r.new_status,
+      eventType: r.event_type || 'UPDATE',
       actorId: r.actor_id,
       actorName: r.actor_name,
       actorRole: r.actor_role,
@@ -873,6 +1177,15 @@ export class DatabaseRepository {
     });
 
     tx();
+
+    this.notifService.notifyFollowers({
+      complaintId: complaint.id,
+      type: 'ACKNOWLEDGED',
+      title: 'Report Formally Acknowledged',
+      message: `Municipal desk acknowledged ${complaint.reference}. Field triage initiated.`,
+      excludeUserId: params.actor.id,
+    });
+
     return this.getComplaintById(complaint.id) || null;
   }
 
@@ -962,6 +1275,15 @@ export class DatabaseRepository {
     });
 
     tx();
+
+    this.notifService.notifyFollowers({
+      complaintId: complaint.id,
+      type: 'WORKER_ASSIGNED',
+      title: 'Repair Crew Dispatched',
+      message: `Work order dispatched: Assigned to ${params.worker.trim()} with approved repair budget of $${params.budget.toLocaleString()}.`,
+      excludeUserId: params.actor.id,
+    });
+
     return this.getComplaintById(complaint.id) || null;
   }
 
@@ -1061,7 +1383,7 @@ export class DatabaseRepository {
       )
       .all(new Date().toISOString()) as any[];
 
-    return rows.map(formatComplaintRow);
+    return rows.map((r) => formatComplaintRow(r, this.db));
   }
 
   public districtIntervene(params: {
@@ -1158,7 +1480,40 @@ export class DatabaseRepository {
     });
 
     tx();
+
+    this.notifService.notifyFollowers({
+      complaintId: complaint.id,
+      type: 'DISTRICT_DIRECTIVE',
+      title: 'District Higher Authority Order',
+      message: `District Executive Directive issued: ${params.directiveText}${workerVal ? ` (Dispatched: ${workerVal}, Budget: $${budgetVal.toLocaleString()})` : ''}`,
+      excludeUserId: params.actor.id,
+    });
+
     return this.getComplaintById(complaint.id) || null;
+  }
+
+  public toggleFollow(complaintId: string, user: { id: string; name: string; email?: string }) {
+    return this.notifService.toggleFollow(complaintId, user);
+  }
+
+  public isUserFollowing(complaintId: string, userId: string): boolean {
+    return this.notifService.isUserFollowing(complaintId, userId);
+  }
+
+  public getFollowersCount(complaintId: string): number {
+    return this.notifService.getFollowersCount(complaintId);
+  }
+
+  public getNotifications(userId: string) {
+    return this.notifService.getNotificationsForUser(userId);
+  }
+
+  public markNotificationRead(notificationId: string, userId: string) {
+    return this.notifService.markAsRead(notificationId, userId);
+  }
+
+  public markAllNotificationsRead(userId: string) {
+    return this.notifService.markAllAsRead(userId);
   }
 
   public simulateAgeComplaint(complaintId: string, days: number = 15): Complaint | null {

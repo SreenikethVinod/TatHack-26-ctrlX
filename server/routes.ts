@@ -2,7 +2,6 @@ import express, { Request, Response, Router } from 'express';
 import { db, User } from './db.ts';
 import { db as rawDb } from './db/connection.ts';
 import { calculatePriorityScore, ComplaintCategory, PriorityLevel } from './services/priorityService.ts';
-import { verifyAndTriageReport } from './services/aiVerificationEngine.ts';
 import { authService, SystemRole } from './services/authService.ts';
 import { lifecycleService } from './services/lifecycleService.ts';
 import { escalationEngine } from './services/escalationEngine.ts';
@@ -10,13 +9,10 @@ import { duplicateService } from './services/duplicateService.ts';
 import { planningService } from './services/planningService.ts';
 import { evidenceService } from './services/evidenceService.ts';
 import { analyticsService } from './services/analyticsService.ts';
+import { notificationService } from './services/notificationService.ts';
 import { authMiddleware, requireRole, resolveUserFromRequest } from './middleware/authMiddleware.ts';
-import { aiRouter } from '../ai-module/index.ts';
 
 export const apiRouter = Router();
-
-// Modular AI forensics & severity engine routes
-apiRouter.use('/ai', aiRouter);
 
 // Apply auth middleware to resolve request user
 apiRouter.use(authMiddleware);
@@ -102,6 +98,7 @@ apiRouter.get('/complaints', (req: Request, res: Response) => {
     const enriched = complaints.map((c) => ({
       ...c,
       hasUserVoted: db.hasUserVoted(c.id, activeUser.id),
+      isFollowing: db.isUserFollowing(c.id, activeUser.id),
     }));
 
     res.json({ complaints: enriched, count: enriched.length });
@@ -131,6 +128,7 @@ apiRouter.get('/complaints/track/:reference', (req: Request, res: Response) => {
     complaint: {
       ...complaint,
       hasUserVoted: db.hasUserVoted(complaint.id, activeUser.id),
+      isFollowing: db.isUserFollowing(complaint.id, activeUser.id),
     },
     history,
     notes,
@@ -155,6 +153,7 @@ apiRouter.get('/complaints/:id', (req: Request, res: Response) => {
     complaint: {
       ...complaint,
       hasUserVoted: db.hasUserVoted(complaint.id, activeUser.id),
+      isFollowing: db.isUserFollowing(complaint.id, activeUser.id),
     },
     history,
     notes,
@@ -171,36 +170,25 @@ apiRouter.get('/complaints/:id/timeline', (req: Request, res: Response) => {
   res.json({ complaintId: complaint.id, reference: complaint.reference, timeline: history });
 });
 
-// Real-time AI verification & triage preview for citizens as they report
-apiRouter.post('/complaints/verify', async (req: Request, res: Response) => {
+// Create new civic complaint
+apiRouter.post('/complaints', (req: Request, res: Response) => {
   try {
-    const { title, description, category, address, locality, latitude, longitude, imageUrl, safetyRisk } = req.body;
-    const existingComplaints = db.getComplaints();
-
-    const verification = await verifyAndTriageReport({
-      title: title || 'Report draft',
-      description: description || 'Draft report description',
-      category: (category as ComplaintCategory) || 'road_damage',
-      address: address || 'Metro District',
+    const {
+      title,
+      description,
+      category,
+      address,
       locality,
-      latitude: typeof latitude === 'number' ? latitude : null,
-      longitude: typeof longitude === 'number' ? longitude : null,
+      latitude,
+      longitude,
       imageUrl,
-      safetyRisk: Boolean(safetyRisk),
-      existingComplaints,
-    });
-
-    res.json({ success: true, verification });
-  } catch (err: any) {
-    console.error('Error during AI verification:', err);
-    res.status(500).json({ error: 'AI verification failed', details: err.message });
-  }
-});
-
-// Create new civic complaint with automated AI credibility verification & severity triage
-apiRouter.post('/complaints', async (req: Request, res: Response) => {
-  try {
-    const { title, description, category, address, locality, latitude, longitude, imageUrl, safetyRisk } = req.body;
+      safetyRisk,
+      photoFingerprint,
+      photoMetadata,
+      photoDistanceMeters,
+      isFlaggedLocationMismatch,
+      locationMatchStatus,
+    } = req.body;
 
     if (!title || typeof title !== 'string' || title.trim().length < 5) {
       return res.status(400).json({ error: 'Title is required and must be at least 5 characters.' });
@@ -216,21 +204,6 @@ apiRouter.post('/complaints', async (req: Request, res: Response) => {
     }
 
     const activeUser = req.user || resolveUserFromRequest(req);
-    const existingComplaints = db.getComplaints();
-
-    // Run AI verification and triage
-    const aiVerification = await verifyAndTriageReport({
-      title,
-      description,
-      category: category as ComplaintCategory,
-      address,
-      locality: locality || 'Metro District',
-      latitude: typeof latitude === 'number' ? latitude : null,
-      longitude: typeof longitude === 'number' ? longitude : null,
-      imageUrl: imageUrl || undefined,
-      safetyRisk: Boolean(safetyRisk),
-      existingComplaints,
-    });
 
     const created = db.createComplaint({
       title,
@@ -244,14 +217,27 @@ apiRouter.post('/complaints', async (req: Request, res: Response) => {
       safetyRisk: Boolean(safetyRisk),
       reporterId: activeUser.id,
       reporterName: activeUser.name,
-      aiVerification,
+      photoFingerprint: photoFingerprint || null,
+      photoMetadata: photoMetadata || null,
+      photoDistanceMeters: typeof photoDistanceMeters === 'number' ? photoDistanceMeters : null,
+      isFlaggedLocationMismatch: Boolean(isFlaggedLocationMismatch),
+      locationMatchStatus: locationMatchStatus || undefined,
     });
+
+    let message = `Civic complaint successfully registered with Reference ID ${created.reference}.`;
+    if (created.isMerged && created.mergedWithReference) {
+      message = `Spatial Auto-Merge: A matching report (${created.mergedWithReference}) was detected ~50m away across the road. Both reports are merged to elevate community priority and prevent duplicate contractor payouts!`;
+    }
+    if (created.isFlaggedLocationMismatch) {
+      message += ` (Location discrepancy flagged: photo was captured ${created.photoDistanceMeters || 0}m away from the specified location).`;
+    }
 
     res.status(201).json({
       success: true,
       complaint: created,
-      verification: aiVerification,
-      message: `Civic complaint successfully registered with Reference ID ${created.reference}.`,
+      autoMerged: Boolean(created.isMerged && created.mergedWithReference),
+      canonicalReference: created.mergedWithReference || null,
+      message,
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to record complaint', details: err.message });
@@ -289,6 +275,19 @@ apiRouter.patch(
       });
 
       const updatedComplaint = db.getComplaintById(id);
+
+      // Notify all followers (and followers of merged reports) about this status update
+      try {
+        notificationService.notifyFollowers({
+          complaintId: id,
+          type: 'STATUS_UPDATE',
+          title: `Status: ${status}`,
+          message: `Report ${updatedComplaint?.reference || id} was updated to "${status}". ${publicUpdate || reason || resolutionSummary || ''}`.trim(),
+          excludeUserId: activeUser.id,
+        });
+      } catch (e) {
+        console.warn('Failed to notify followers for status change:', e);
+      }
 
       res.json({
         success: true,
@@ -555,6 +554,64 @@ apiRouter.post('/complaints/:id/votes', (req: Request, res: Response) => {
   res.json(result);
 });
 
+// Follow / Unfollow Report
+apiRouter.post('/complaints/:id/follow', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const activeUser = req.user || resolveUserFromRequest(req);
+
+  const result = db.toggleFollow(id, {
+    id: activeUser.id,
+    name: activeUser.name,
+    email: activeUser.email,
+  });
+
+  res.json({
+    success: true,
+    complaintId: id,
+    ...result,
+  });
+});
+
+// Check if user is following report
+apiRouter.get('/complaints/:id/follow-status', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const activeUser = req.user || resolveUserFromRequest(req);
+
+  const isFollowing = db.isUserFollowing(id, activeUser.id);
+  const followersCount = db.getFollowersCount(id);
+
+  res.json({
+    complaintId: id,
+    isFollowing,
+    followersCount,
+  });
+});
+
+// Notifications list for active user
+apiRouter.get('/notifications', (req: Request, res: Response) => {
+  const activeUser = req.user || resolveUserFromRequest(req);
+  const data = db.getNotifications(activeUser.id);
+  res.json({
+    success: true,
+    ...data,
+  });
+});
+
+// Mark single notification read
+apiRouter.patch('/notifications/:id/read', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const activeUser = req.user || resolveUserFromRequest(req);
+  db.markNotificationRead(id, activeUser.id);
+  res.json({ success: true, notificationId: id, read: true });
+});
+
+// Mark all notifications read
+apiRouter.post('/notifications/mark-all-read', (req: Request, res: Response) => {
+  const activeUser = req.user || resolveUserFromRequest(req);
+  db.markAllNotificationsRead(activeUser.id);
+  res.json({ success: true, message: 'All notifications marked as read.' });
+});
+
 // Audit history endpoint
 apiRouter.get('/complaints/:id/history', (req: Request, res: Response) => {
   const { id } = req.params;
@@ -581,6 +638,20 @@ apiRouter.post(
       note,
       visibility: visibility === 'public' ? 'public' : 'internal',
     });
+
+    if (visibility === 'public') {
+      try {
+        notificationService.notifyFollowers({
+          complaintId: id,
+          type: 'OFFICIAL_NOTE',
+          title: 'Official Note Added',
+          message: `Official note posted by ${activeUser.name}: "${note.trim()}"`,
+          excludeUserId: activeUser.id,
+        });
+      } catch (e) {
+        console.warn('Failed to notify followers for note:', e);
+      }
+    }
 
     res.status(201).json({ success: true, note: createdNote });
   }

@@ -12,6 +12,8 @@ import {
   ArrowRight,
   Shield,
   Layers,
+  Bell,
+  BellRing,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { Complaint, ComplaintCategory, ComplaintStatus, PriorityLevel } from '../types';
@@ -38,6 +40,32 @@ export const ExploreIssuesPage: React.FC<Props> = ({ onSelectComplaint, onReport
 
   // Voting state tracker
   const [votingId, setVotingId] = useState<string | null>(null);
+  const [followingId, setFollowingId] = useState<string | null>(null);
+
+  const handleFollow = async (e: React.MouseEvent, complaintId: string) => {
+    e.stopPropagation();
+    if (!currentUser) {
+      alert('Please sign in to follow reports.');
+      return;
+    }
+    if (followingId) return;
+
+    setFollowingId(complaintId);
+    try {
+      const res = await api.followComplaint(complaintId);
+      setComplaints((prev) =>
+        prev.map((c) =>
+          c.id === complaintId
+            ? { ...c, isFollowing: res.isFollowing, followersCount: res.followersCount }
+            : c
+        )
+      );
+    } catch (err: any) {
+      console.warn('Follow error:', err);
+    } finally {
+      setFollowingId(null);
+    }
+  };
 
   const fetchList = async () => {
     setLoading(true);
@@ -303,21 +331,43 @@ export const ExploreIssuesPage: React.FC<Props> = ({ onSelectComplaint, onReport
                   </div>
                 </div>
 
-                {/* Footer bar with Upvote Action */}
+                {/* Footer bar with Upvote Action and Follow Button */}
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={(e) => handleVote(e, c.id)}
-                    disabled={votingId === c.id || c.hasUserVoted}
-                    className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors ${
-                      c.hasUserVoted
-                        ? 'bg-teal-50 text-teal-700 border border-teal-200 cursor-default'
-                        : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200'
-                    }`}
-                  >
-                    <ThumbsUp className={`w-3.5 h-3.5 ${c.hasUserVoted ? 'fill-teal-600 text-teal-600' : ''}`} />
-                    <span>{c.votesCount}</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={(e) => handleVote(e, c.id)}
+                      disabled={votingId === c.id || c.hasUserVoted}
+                      className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                        c.hasUserVoted
+                          ? 'bg-teal-50 text-teal-700 border border-teal-200 cursor-default'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200'
+                      }`}
+                      title={c.hasUserVoted ? 'You endorsed this issue' : 'Endorse issue'}
+                    >
+                      <ThumbsUp className={`w-3.5 h-3.5 ${c.hasUserVoted ? 'fill-teal-600 text-teal-600' : ''}`} />
+                      <span>{c.votesCount}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => handleFollow(e, c.id)}
+                      disabled={followingId === c.id}
+                      className={`flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-lg transition-colors cursor-pointer ${
+                        c.isFollowing
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
+                      }`}
+                      title={c.isFollowing ? 'Following report updates' : 'Follow to receive notifications'}
+                    >
+                      {c.isFollowing ? (
+                        <BellRing className="w-3 h-3 text-white" />
+                      ) : (
+                        <Bell className="w-3 h-3 text-slate-500" />
+                      )}
+                      <span>{c.isFollowing ? 'Following' : 'Follow'}</span>
+                    </button>
+                  </div>
 
                   <span className="text-[11px] text-slate-400">
                     {new Date(c.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}

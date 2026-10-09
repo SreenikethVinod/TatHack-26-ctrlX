@@ -13,13 +13,18 @@ import {
   FileText,
   ArrowRight,
   ExternalLink,
+  Bell,
+  BellRing,
+  Sparkles,
+  Layers,
+  Users,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { Complaint, ComplaintHistoryEntry, OfficialNote } from '../types';
 import { StatusBadge } from '../components/StatusBadge';
 import { PriorityBadge } from '../components/PriorityBadge';
+import { PhotoVerificationBadge } from '../components/PhotoVerificationBadge';
 import { Timeline } from '../components/Timeline';
-import { AIVerificationCard } from '../components/AIVerificationCard';
 import { useAuth } from '../context/AuthContext';
 
 interface Props {
@@ -36,6 +41,10 @@ export const TrackIssuePage: React.FC<Props> = ({ initialReference = '', onExplo
   const [notes, setNotes] = useState<OfficialNote[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [voting, setVoting] = useState(false);
+  const [following, setFollowing] = useState(false);
+  const [followersCount, setFollowersCount] = useState(1);
+  const [followingLoading, setFollowingLoading] = useState(false);
+  const [followMsg, setFollowMsg] = useState<string | null>(null);
 
   // Quick preset samples for judges
   const sampleRefs = [
@@ -54,6 +63,17 @@ export const TrackIssuePage: React.FC<Props> = ({ initialReference = '', onExplo
       setComplaint(data.complaint);
       setHistory(data.history || []);
       setNotes(data.notes || []);
+      setFollowersCount(data.complaint.followersCount || 1);
+      
+      // Also check follow status for logged in user
+      if (data.complaint.id) {
+        api.getFollowStatus(data.complaint.id)
+          .then((st) => {
+            setFollowing(st.isFollowing);
+            setFollowersCount(st.followersCount);
+          })
+          .catch(() => {});
+      }
     } catch (err: any) {
       setComplaint(null);
       setHistory([]);
@@ -76,6 +96,25 @@ export const TrackIssuePage: React.FC<Props> = ({ initialReference = '', onExplo
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     searchComplaint(query);
+  };
+
+  const handleToggleFollow = async () => {
+    if (!complaint || followingLoading) return;
+    setFollowingLoading(true);
+    setFollowMsg(null);
+    try {
+      const res = await api.followComplaint(complaint.id);
+      if (res.success) {
+        setFollowing(res.isFollowing);
+        setFollowersCount(res.followersCount);
+        setFollowMsg(res.message);
+        setTimeout(() => setFollowMsg(null), 4000);
+      }
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setFollowingLoading(false);
+    }
   };
 
   const handleVote = async () => {
@@ -195,34 +234,107 @@ export const TrackIssuePage: React.FC<Props> = ({ initialReference = '', onExplo
           <div className="syntrix-card p-6 sm:p-8 bg-white space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
               <div>
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <span className="font-mono text-xs font-black text-teal-800 bg-teal-50 border border-teal-200 px-2.5 py-1 rounded-md">
                     {complaint.reference}
                   </span>
                   <StatusBadge status={complaint.status} size="md" />
                   <PriorityBadge priority={complaint.priority} size="md" />
+                  {complaint.imageUrl && (
+                    <PhotoVerificationBadge
+                      imageUrl={complaint.imageUrl}
+                      photoFingerprint={complaint.photoFingerprint}
+                      photoMetadata={complaint.photoMetadata}
+                      isFlaggedLocationMismatch={complaint.isFlaggedLocationMismatch}
+                      locationMatchStatus={complaint.locationMatchStatus}
+                      photoDistanceMeters={complaint.photoDistanceMeters}
+                      compact
+                    />
+                  )}
                 </div>
                 <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-snug">
                   {complaint.title}
                 </h2>
               </div>
 
-              {/* Endorse Vote Button */}
-              <button
-                onClick={handleVote}
-                disabled={voting || complaint.hasUserVoted}
-                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shrink-0 ${
-                  complaint.hasUserVoted
-                    ? 'bg-teal-50 text-teal-700 border border-teal-200 cursor-default'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900'
-                }`}
-              >
-                <ThumbsUp className={`w-3.5 h-3.5 ${complaint.hasUserVoted ? 'fill-teal-600 text-teal-600' : ''}`} />
-                <span>
-                  {complaint.hasUserVoted ? 'Endorsed by You' : 'Support Issue'} ({complaint.votesCount})
-                </span>
-              </button>
+              {/* Actions: Follow Report & Endorse Vote */}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  onClick={handleToggleFollow}
+                  disabled={followingLoading}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                    following
+                      ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-xs'
+                      : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
+                  }`}
+                  title={following ? 'Click to unfollow updates' : 'Follow to receive resolution updates'}
+                >
+                  {following ? (
+                    <BellRing className="w-3.5 h-3.5 text-white" />
+                  ) : (
+                    <Bell className="w-3.5 h-3.5 text-slate-500" />
+                  )}
+                  <span>
+                    {following ? 'Following' : 'Follow Report'} ({followersCount})
+                  </span>
+                </button>
+
+                <button
+                  onClick={handleVote}
+                  disabled={voting || complaint.hasUserVoted}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                    complaint.hasUserVoted
+                      ? 'bg-teal-50 text-teal-700 border border-teal-200 cursor-default'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900'
+                  }`}
+                >
+                  <ThumbsUp className={`w-3.5 h-3.5 ${complaint.hasUserVoted ? 'fill-teal-600 text-teal-600' : ''}`} />
+                  <span>
+                    {complaint.hasUserVoted ? 'Endorsed' : 'Support Issue'} ({complaint.votesCount})
+                  </span>
+                </button>
+              </div>
             </div>
+
+            {/* Follow Success Message */}
+            {followMsg && (
+              <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs text-indigo-900 flex items-center gap-2 animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span>{followMsg}</span>
+              </div>
+            )}
+
+            {/* Spatial Auto-Merge Banner: Opposite Side of Road */}
+            {complaint.isMerged && complaint.mergedWithReference && (
+              <div className="p-4 bg-purple-50 border border-purple-200 rounded-2xl text-xs text-purple-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <Sparkles className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-purple-950 block">Spatial Auto-Merge Clustered</span>
+                    <span className="text-purple-800">
+                      This report was clustered with canonical ticket <strong>{complaint.mergedWithReference}</strong> (located ~50m across the road).
+                      Both reports are linked into one municipal work order to eliminate duplicate contractor payouts.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => searchComplaint(complaint.mergedWithReference!)}
+                  className="px-3.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-xs transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>Track {complaint.mergedWithReference}</span>
+                  <ExternalLink className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+
+            {complaint.mergedCount && complaint.mergedCount > 0 && (
+              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs text-emerald-900 flex items-center gap-2.5">
+                <Layers className="w-4 h-4 text-emerald-700 shrink-0" />
+                <span>
+                  <strong>Spatial Cluster Hub:</strong> {complaint.mergedCount} neighboring citizen report(s) from within 50m across the street were automatically merged into this issue, elevating community priority score and unified field triage.
+                </span>
+              </div>
+            )}
 
             {/* SLA Status Banner */}
             {sla && (
@@ -284,7 +396,19 @@ export const TrackIssuePage: React.FC<Props> = ({ initialReference = '', onExplo
                     <span className="text-slate-400">Original Condition</span>
                   </div>
                   {complaint.imageUrl ? (
-                    <img src={complaint.imageUrl} alt="Before" className="w-full h-48 object-cover" />
+                    <div>
+                      <img src={complaint.imageUrl} alt="Before" className="w-full h-48 object-cover" />
+                      <div className="p-3">
+                        <PhotoVerificationBadge
+                          imageUrl={complaint.imageUrl}
+                          photoFingerprint={complaint.photoFingerprint}
+                          photoMetadata={complaint.photoMetadata}
+                          isFlaggedLocationMismatch={complaint.isFlaggedLocationMismatch}
+                          locationMatchStatus={complaint.locationMatchStatus}
+                          photoDistanceMeters={complaint.photoDistanceMeters}
+                        />
+                      </div>
+                    </div>
                   ) : (
                     <div className="h-48 flex items-center justify-center text-slate-400 text-xs">
                       No initial photo attached
@@ -310,16 +434,6 @@ export const TrackIssuePage: React.FC<Props> = ({ initialReference = '', onExplo
                 </div>
               </div>
             </div>
-
-            {/* AI Forensics & Severity Triage Result */}
-            {complaint.aiVerification && (
-              <div className="space-y-2">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                  Automated AI Credibility &amp; Severity Audit
-                </span>
-                <AIVerificationCard verification={complaint.aiVerification} />
-              </div>
-            )}
 
             {/* Official Resolution Summary (if resolved) */}
             {complaint.resolutionSummary && (
