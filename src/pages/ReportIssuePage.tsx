@@ -17,10 +17,12 @@ import {
   Waves,
   Lightbulb,
   Droplets,
+  HelpCircle,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { ComplaintCategory, PriorityLevel } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { detectRealLocation } from '../lib/geo';
 
 interface Props {
   onSuccessNavigate: (reference: string) => void;
@@ -33,8 +35,9 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<ComplaintCategory>('road_damage');
+  const [otherCategoryDetail, setOtherCategoryDetail] = useState('');
   const [address, setAddress] = useState('');
-  const [locality, setLocality] = useState('Central Metro');
+  const [locality, setLocality] = useState('');
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [safetyRisk, setSafetyRisk] = useState(false);
@@ -84,6 +87,12 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
       desc: 'Broken guardrails, exposed wiring, open manholes',
       Icon: AlertTriangle,
     },
+    {
+      id: 'other' as ComplaintCategory,
+      title: 'Other Civic Issue',
+      desc: 'Parks, encroachments, noise, or unlisted issues',
+      Icon: HelpCircle,
+    },
   ];
 
   // Preset sample photos for rapid demonstration
@@ -107,35 +116,23 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
   ];
 
   // Geolocation trigger
-  const handleDetectLocation = () => {
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser.');
-      return;
-    }
+  const handleDetectLocation = async () => {
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = Math.round(position.coords.latitude * 10000) / 10000;
-        const lng = Math.round(position.coords.longitude * 10000) / 10000;
-        setLatitude(lat);
-        setLongitude(lng);
-        if (!address) {
-          setAddress(`GPS Location: ${lat.toFixed(4)}, ${lng.toFixed(4)} (Metro District)`);
-        }
-        setLocating(false);
-      },
-      (err) => {
-        console.warn('Geolocation error:', err);
-        // Fallback demo coordinates
-        setLatitude(37.7749);
-        setLongitude(-122.4194);
-        if (!address) {
-          setAddress('Simulated GPS: Civic Center Plaza, Downtown');
-        }
-        setLocating(false);
-      },
-      { timeout: 8000 }
-    );
+    setErrorMsg(null);
+    try {
+      const geo = await detectRealLocation();
+      setLatitude(geo.latitude);
+      setLongitude(geo.longitude);
+      setAddress(geo.address);
+      if (geo.locality) {
+        setLocality(geo.locality);
+      }
+    } catch (err: any) {
+      console.warn('Geolocation error:', err);
+      alert(err.message || 'Could not retrieve your location. Please enter your street address manually.');
+    } finally {
+      setLocating(false);
+    }
   };
 
   // Image file upload handler (converts to base64 DataURL for offline self-contained demo)
@@ -181,11 +178,21 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
       return;
     }
 
+    if (category === 'other' && !otherCategoryDetail.trim()) {
+      setErrorMsg('Please specify what kind of other issue this is.');
+      return;
+    }
+
     setSubmitting(true);
     try {
+      const finalDesc =
+        category === 'other' && otherCategoryDetail.trim()
+          ? `[Custom Category: ${otherCategoryDetail.trim()}]\n\n${description.trim()}`
+          : description.trim();
+
       const response = await api.createComplaint({
         title: title.trim(),
-        description: description.trim(),
+        description: finalDesc,
         category,
         address: address.trim(),
         locality: locality.trim() || 'Metro District',
@@ -355,6 +362,27 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
               );
             })}
           </div>
+
+          {/* Conditional field for Other category */}
+          {category === 'other' && (
+            <div className="mt-3 p-4 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-1.5 animate-in fade-in duration-200">
+              <label className="block text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                <HelpCircle className="w-4 h-4 text-indigo-600" />
+                <span>Specify Issue Type / What is the issue? <span className="text-rose-500">*</span></span>
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Broken park playground swing, Illegal sidewalk commercial hoarding, Encroachment, etc."
+                value={otherCategoryDetail}
+                onChange={(e) => setOtherCategoryDetail(e.target.value)}
+                className="w-full text-xs sm:text-sm bg-white border border-indigo-300 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 text-slate-900 placeholder-slate-400"
+              />
+              <p className="text-[11px] text-indigo-700">
+                Tell us specifically what civic problem isn't covered in the standard categories above.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Title */}
@@ -427,10 +455,22 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
           </div>
 
           {latitude && longitude && (
-            <div className="text-[11px] text-teal-800 bg-teal-50/80 border border-teal-200 px-3 py-1.5 rounded-lg flex items-center gap-2">
-              <MapPin className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-              <span>
-                Coordinates locked: {latitude.toFixed(4)}, {longitude.toFixed(4)} (Accurate for Leaflet map display)
+            <div className="text-xs text-emerald-850 bg-emerald-50 border border-emerald-300 px-3.5 py-2.5 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-6 h-6 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-700" />
+                </div>
+                <div>
+                  <div className="text-[11px] font-bold text-emerald-900">
+                    Real Device GPS Coordinates Locked
+                  </div>
+                  <div className="text-[11px] text-emerald-700">
+                    {address ? address : `Coordinates: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`}
+                  </div>
+                </div>
+              </div>
+              <span className="text-[10px] font-mono font-bold bg-white border border-emerald-200 text-emerald-800 px-2.5 py-1 rounded-lg shrink-0">
+                {latitude.toFixed(4)}, {longitude.toFixed(4)}
               </span>
             </div>
           )}

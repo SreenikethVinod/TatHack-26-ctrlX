@@ -4,7 +4,8 @@ export type ComplaintCategory =
   | 'drainage'
   | 'streetlights'
   | 'water_supply'
-  | 'public_safety';
+  | 'public_safety'
+  | 'other';
 
 export type PriorityLevel = 'Low' | 'Medium' | 'High' | 'Critical';
 
@@ -51,6 +52,7 @@ const CATEGORY_SEVERITY: Record<string, number> = {
   drainage: 70,
   waste_management: 60,
   streetlights: 50,
+  other: 55,
 };
 
 /**

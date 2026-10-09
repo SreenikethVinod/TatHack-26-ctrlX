@@ -8,8 +8,10 @@ interface AuthContextType {
   isOfficial: boolean;
   isAdmin: boolean;
   isDistrictAdmin: boolean;
+  isMunicipalityAdmin: boolean;
   isCitizen: boolean;
   login: (email: string, password: string) => Promise<User>;
+  register: (payload: { name: string; email: string; password: string; role?: string; department?: string }) => Promise<User>;
   logout: () => void;
   switchUser: (userId: string) => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -25,23 +27,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadUsersAndMe = async () => {
     try {
+      const token = localStorage.getItem('civicpulse_token');
       const [usersRes, meRes] = await Promise.all([
         api.getUsers().catch(() => ({ users: [] })),
-        api.getMe().catch(() => ({
-          user: {
-            id: 'user-citizen-1',
-            name: 'Aisha Chen',
-            email: 'aisha.chen@citizen.demo',
-            role: 'citizen' as const,
-            createdAt: new Date().toISOString(),
-          },
-        })),
+        token ? api.getMe().catch(() => ({ user: null as any })) : Promise.resolve({ user: null as any }),
       ]);
 
       setUsers(usersRes.users || []);
-      setCurrentUser(meRes.user || null);
+      setCurrentUser(meRes?.user || null);
     } catch (err) {
       console.error('Failed to load user session', err);
+      setCurrentUser(null);
     } finally {
       setLoading(false);
     }
@@ -62,13 +58,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const register = async (payload: { name: string; email: string; password: string; role?: string; department?: string }): Promise<User> => {
+    setLoading(true);
+    try {
+      const res = await api.register(payload);
+      setCurrentUser(res.user);
+      return res.user;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = () => {
     api.logout();
-    if (users.length > 0) {
-      const citizen = users.find((u) => u.role === 'citizen') || users[0];
-      setApiUserId(citizen.id);
-      setCurrentUser(citizen);
-    }
+    localStorage.removeItem('civicpulse_user_id');
+    localStorage.removeItem('civicpulse_token');
+    setCurrentUser(null);
   };
 
   const switchUser = async (userId: string) => {
@@ -93,12 +98,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const isOfficial = currentUser?.role === 'official' || currentUser?.role === 'admin';
-  const isAdmin = currentUser?.role === 'admin';
-  const isDistrictAdmin =
-    (currentUser as any)?.systemRole === 'DISTRICT_REVIEWER' ||
-    currentUser?.email === 'elena.rostova@district.demo';
-  const isCitizen = currentUser?.role === 'citizen';
+  const isDistrictAdmin = Boolean(
+    currentUser &&
+      ((currentUser as any)?.systemRole === 'DISTRICT_REVIEWER' ||
+        (currentUser as any)?.systemRole === 'DISTRICT_ADMIN' ||
+        currentUser?.email?.toLowerCase().includes('district') ||
+        currentUser?.email === 'elena.rostova@district.demo')
+  );
+
+  const isMunicipalityAdmin = Boolean(
+    currentUser &&
+      !isDistrictAdmin &&
+      (currentUser?.role === 'official' ||
+        currentUser?.role === 'admin' ||
+        (currentUser as any)?.systemRole === 'SUPERVISOR' ||
+        (currentUser as any)?.systemRole === 'PANCHAYAT_OFFICER' ||
+        currentUser?.email?.toLowerCase().includes('municipality') ||
+        currentUser?.email?.toLowerCase().includes('gov.demo') ||
+        currentUser?.email?.toLowerCase().includes('admin@civicpulse.demo'))
+  );
+
+  const isOfficial = isMunicipalityAdmin || isDistrictAdmin;
+  const isAdmin = Boolean(isDistrictAdmin || currentUser?.role === 'admin');
+  const isCitizen = Boolean(currentUser) && !isMunicipalityAdmin && !isDistrictAdmin;
 
   return (
     <AuthContext.Provider
@@ -108,8 +130,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isOfficial,
         isAdmin,
         isDistrictAdmin,
+        isMunicipalityAdmin,
         isCitizen,
         login,
+        register,
         logout,
         switchUser,
         refreshUser,

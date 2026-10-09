@@ -4,215 +4,781 @@ import {
   Clock,
   CheckCircle2,
   PlusCircle,
-  ThumbsUp,
   MapPin,
   Calendar,
-  ArrowRight,
-  ShieldAlert,
+  AlertTriangle,
   User,
+  IndianRupee,
+  HardHat,
+  ArrowRight,
+  Eye,
+  Camera,
+  Upload,
+  Check,
+  ShieldAlert,
+  ChevronRight,
+  X,
+  MessageSquare,
 } from 'lucide-react';
 import { api } from '../lib/api';
-import { Complaint } from '../types';
+import { Complaint, ComplaintCategory, ComplaintHistoryEntry, OfficialNote } from '../types';
 import { StatusBadge } from '../components/StatusBadge';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { useAuth } from '../context/AuthContext';
+import { detectRealLocation } from '../lib/geo';
 
 interface Props {
-  onTrackNavigate: (reference: string) => void;
-  onReportNavigate: () => void;
+  onTrackNavigate?: (reference: string) => void;
+  onReportNavigate?: () => void;
 }
 
-export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate, onReportNavigate }) => {
+export const CitizenDashboardPage: React.FC<Props> = ({ onTrackNavigate }) => {
   const { currentUser } = useAuth();
+
+  const [activeTab, setActiveTab] = useState<'my-reports' | 'new-report'>('my-reports');
   const [myComplaints, setMyComplaints] = useState<Complaint[]>([]);
-  const [upvotedComplaints, setUpvotedComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function loadCitizenData() {
-      if (!currentUser) return;
-      setLoading(true);
-      try {
-        const res = await api.getComplaints();
-        const all = res.complaints || [];
+  // Selected complaint for modal details
+  const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
+  const [complaintHistory, setComplaintHistory] = useState<ComplaintHistoryEntry[]>([]);
+  const [complaintNotes, setComplaintNotes] = useState<OfficialNote[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
 
-        // Issues reported by active user
-        const mine = all.filter((c) => c.reporterId === currentUser.id);
-        // Issues upvoted by active user
-        const upvoted = all.filter((c) => c.hasUserVoted && c.reporterId !== currentUser.id);
+  // New report form states
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState<ComplaintCategory>('road_damage');
+  const [otherCategoryDetail, setOtherCategoryDetail] = useState('');
+  const [address, setAddress] = useState('');
+  const [locality, setLocality] = useState('');
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  const [description, setDescription] = useState('');
+  const [safetyRisk, setSafetyRisk] = useState(false);
+  const [imageUrl, setImageUrl] = useState('');
+  const [locating, setLocating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
 
-        setMyComplaints(mine);
-        setUpvotedComplaints(upvoted);
-      } catch (err) {
-        console.error('Failed to load citizen complaints', err);
-      } finally {
-        setLoading(false);
+  const handleDetectLocation = async () => {
+    setLocating(true);
+    setSubmitError(null);
+    try {
+      const geo = await detectRealLocation();
+      setAddress(geo.address);
+      if (geo.locality) {
+        setLocality(geo.locality);
       }
+      setLatitude(geo.latitude);
+      setLongitude(geo.longitude);
+    } catch (err: any) {
+      console.warn('Geolocation error:', err);
+      alert(err.message || 'Could not retrieve your location. Please enter your street address manually.');
+    } finally {
+      setLocating(false);
     }
-    loadCitizenData();
+  };
+
+  const loadCitizenComplaints = async () => {
+    if (!currentUser) return;
+    setLoading(true);
+    try {
+      const res = await api.getComplaints();
+      const all = res.complaints || [];
+      // Filter for this citizen's reports (or match current user ID/email)
+      const mine = all.filter(
+        (c) => c.reporterId === currentUser.id || c.reporterName === currentUser.name
+      );
+      setMyComplaints(mine);
+    } catch (err) {
+      console.error('Failed to load citizen complaints', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCitizenComplaints();
   }, [currentUser]);
 
-  const activeCount = myComplaints.filter(
-    (c) => c.status === 'Submitted' || c.status === 'Acknowledged' || c.status === 'In Progress'
-  ).length;
-  const resolvedCount = myComplaints.filter((c) => c.status === 'Resolved').length;
+  const handleOpenDetail = async (complaint: Complaint) => {
+    setSelectedComplaint(complaint);
+    setDetailLoading(true);
+    try {
+      const res = await api.getComplaint(complaint.id);
+      setSelectedComplaint(res.complaint);
+      setComplaintHistory(res.history || []);
+      setComplaintNotes(res.notes || []);
+    } catch (err) {
+      console.error('Failed to load complaint details', err);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleCreateReport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim() || !description.trim() || !address.trim()) {
+      setSubmitError('Please complete all required fields.');
+      return;
+    }
+
+    if (category === 'other' && !otherCategoryDetail.trim()) {
+      setSubmitError('Please specify the issue type for "Other".');
+      return;
+    }
+
+    setSubmitting(true);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+
+    try {
+      const finalDesc =
+        category === 'other' && otherCategoryDetail.trim()
+          ? `[Custom Category: ${otherCategoryDetail.trim()}]\n\n${description.trim()}`
+          : description.trim();
+
+      const res = await api.createComplaint({
+        title: title.trim(),
+        description: finalDesc,
+        category,
+        address: address.trim(),
+        locality: locality.trim(),
+        latitude,
+        longitude,
+        safetyRisk,
+        imageUrl: imageUrl.trim() || undefined,
+      });
+
+      setSubmitSuccess(`Report registered successfully with Reference ID ${res.complaint.reference}! 14-day municipal review started.`);
+      // Reset form
+      setTitle('');
+      setCategory('road_damage');
+      setOtherCategoryDetail('');
+      setDescription('');
+      setAddress('');
+      setLocality('');
+      setLatitude(null);
+      setLongitude(null);
+      setImageUrl('');
+      setSafetyRisk(false);
+
+      // Refresh list and switch to "my-reports"
+      await loadCitizenComplaints();
+      setTimeout(() => {
+        setActiveTab('my-reports');
+        setSubmitSuccess(null);
+      }, 1200);
+    } catch (err: any) {
+      setSubmitError(err.message || 'Failed to submit civic report.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const sampleImages = [
+    { label: 'Pothole Damage', url: 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=600&q=80' },
+    { label: 'Garbage Overflow', url: 'https://images.unsplash.com/photo-1605600659873-d808a13e4d2a?auto=format&fit=crop&w=600&q=80' },
+    { label: 'Streetlight Broken', url: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=600&q=80' },
+    { label: 'Water Pipe Leak', url: 'https://images.unsplash.com/photo-1585314062340-f1a5a7c9328d?auto=format&fit=crop&w=600&q=80' },
+  ];
 
   return (
-    <div className="max-w-6xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-8">
-      {/* Header Profile Greeting */}
-      <div className="syntrix-card bg-white p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div className="max-w-6xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6 animate-in fade-in duration-150">
+      {/* Citizen Header Greeting */}
+      <div className="syntrix-card bg-white p-6 sm:p-7 flex flex-col md:flex-row md:items-center justify-between gap-6 border border-slate-200">
         <div className="flex items-center gap-4">
-          <img
-            src={
-              currentUser?.avatarUrl ||
-              'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80'
-            }
-            alt={currentUser?.name}
-            className="w-16 h-16 rounded-2xl object-cover border-2 border-indigo-600"
-          />
+          <div className="w-14 h-14 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 font-extrabold text-xl shrink-0">
+            {currentUser?.name ? currentUser.name[0].toUpperCase() : 'C'}
+          </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900">{currentUser?.name}</h1>
-              <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-indigo-200">
-                Verified Citizen
+              <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900">
+                {currentUser?.name || 'Citizen Resident'}
+              </h1>
+              <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-emerald-200">
+                Citizen Portal
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">{currentUser?.email} • Metro District Resident</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {currentUser?.email} • Track your civic grievances &amp; resolutions transparently
+            </p>
           </div>
         </div>
 
-        <button
-          onClick={onReportNavigate}
-          className="self-start md:self-auto flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-xs transition-colors cursor-pointer"
-        >
-          <PlusCircle className="w-4 h-4 stroke-[2.5]" />
-          <span>Report New Problem</span>
-        </button>
-      </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="syntrix-card bg-white p-5">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Total Reports Filed</span>
-            <FileText className="w-4 h-4 text-slate-500" />
-          </div>
-          <div className="text-3xl font-extrabold text-slate-900">{myComplaints.length}</div>
-          <p className="text-[11px] text-slate-500 mt-1">Recorded in municipal database</p>
-        </div>
-
-        <div className="syntrix-card bg-white p-5">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Active In Queue</span>
-            <Clock className="w-4 h-4 text-amber-500" />
-          </div>
-          <div className="text-3xl font-extrabold text-amber-600">{activeCount}</div>
-          <p className="text-[11px] text-slate-500 mt-1">Awaiting or undergoing field repairs</p>
-        </div>
-
-        <div className="syntrix-card bg-white p-5">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Verified Resolved</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-          </div>
-          <div className="text-3xl font-extrabold text-emerald-600">{resolvedCount}</div>
-          <p className="text-[11px] text-slate-500 mt-1">Closed with photographic proof</p>
+        {/* Tab Switcher: View Reports vs Create Report */}
+        <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl self-start md:self-auto">
+          <button
+            type="button"
+            onClick={() => setActiveTab('my-reports')}
+            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'my-reports'
+                ? 'bg-white text-indigo-700 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>My Reports ({myComplaints.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('new-report')}
+            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'new-report'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <PlusCircle className="w-3.5 h-3.5" />
+            <span>Create New Report</span>
+          </button>
         </div>
       </div>
 
-      {/* Submitted Complaints Table / Cards */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-900">My Reported Issues</h2>
-          <span className="text-xs text-slate-500">{myComplaints.length} issues submitted</span>
-        </div>
+      {/* TAB 1: CREATE NEW REPORT */}
+      {activeTab === 'new-report' && (
+        <div className="syntrix-card bg-white p-6 sm:p-8 space-y-6 border border-slate-200">
+          <div className="border-b border-slate-100 pb-4">
+            <h2 className="text-lg font-extrabold text-slate-900">Report a Civic Problem</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Your report will be registered immediately into the municipal queue. The municipal administration has up to 14 days to acknowledge and assign workers before automatic District Admin escalation.
+            </p>
+          </div>
 
-        {loading ? (
-          <div className="p-8 text-center text-slate-400 text-xs">Loading citizen records...</div>
-        ) : myComplaints.length === 0 ? (
-          <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center space-y-3">
-            <p className="text-xs text-slate-500">You haven't submitted any complaints under this account yet.</p>
+          <form onSubmit={handleCreateReport} className="space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Issue Title *</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Hazardous Pothole on Maple Road"
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Category *</label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as ComplaintCategory)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                >
+                  <option value="road_damage">Road &amp; Pavement Damage</option>
+                  <option value="waste_management">Sanitation &amp; Waste Management</option>
+                  <option value="drainage">Drainage &amp; Stormwater</option>
+                  <option value="streetlights">Streetlights &amp; Electrical</option>
+                  <option value="water_supply">Water Supply &amp; Pipelines</option>
+                  <option value="public_safety">Public Safety Infrastructure</option>
+                  <option value="other">Other Civic Issue (Specify below)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Conditional field for Other category */}
+            {category === 'other' && (
+              <div className="p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-1.5 animate-in fade-in duration-200">
+                <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                  <span>Specify Civic Issue Type / What is the issue? *</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={otherCategoryDetail}
+                  onChange={(e) => setOtherCategoryDetail(e.target.value)}
+                  placeholder="e.g. Broken park playground bench, commercial hoarding blocking footpath, noise nuisance, etc."
+                  className="w-full px-3.5 py-2.5 bg-white border border-indigo-300 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 placeholder-slate-400"
+                />
+                <p className="text-[11px] text-indigo-700">
+                  Please describe the specific issue category not listed above.
+                </p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700">Specific Location / Address *</label>
+                  <button
+                    type="button"
+                    onClick={handleDetectLocation}
+                    disabled={locating}
+                    className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <MapPin className={`w-3.5 h-3.5 ${locating ? 'animate-bounce text-indigo-600' : ''}`} />
+                    <span>{locating ? 'Detecting Real Address...' : 'Use My GPS Location'}</span>
+                  </button>
+                </div>
+                <div className="relative">
+                  <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder="e.g. Near Crossroad 4, Oakwood North"
+                    required
+                    className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Locality / Ward</label>
+                <input
+                  type="text"
+                  value={locality}
+                  onChange={(e) => setLocality(e.target.value)}
+                  placeholder="e.g. Indiranagar, Oakwood Ward"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                />
+              </div>
+            </div>
+
+            {latitude && longitude && (
+              <div className="text-xs text-emerald-850 bg-emerald-50 border border-emerald-300 px-3.5 py-2.5 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-6 h-6 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+                    <MapPin className="w-3.5 h-3.5 text-emerald-700" />
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-bold text-emerald-900">
+                      Real Device GPS Location Verified
+                    </div>
+                    <div className="text-[11px] text-emerald-700">
+                      {address ? address : `Coordinates: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`}
+                    </div>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono font-bold bg-white border border-emerald-200 text-emerald-800 px-2.5 py-1 rounded-lg shrink-0">
+                  {latitude.toFixed(4)}, {longitude.toFixed(4)}
+                </span>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">Detailed Description *</label>
+              <textarea
+                rows={3}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Explain the severity, impact on traffic or residents, and how long the problem has existed..."
+                required
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+              />
+            </div>
+
+            {/* Photo Attachment */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <Camera className="w-3.5 h-3.5 text-slate-400" />
+                <span>Attach Photo (URL or Sample Preset)</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="https://images.unsplash.com/..."
+                  className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                />
+              </div>
+
+              {/* Sample Photo Presets */}
+              <div className="flex items-center gap-2 pt-1 flex-wrap">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quick Sample Photos:</span>
+                {sampleImages.map((s) => (
+                  <button
+                    key={s.label}
+                    type="button"
+                    onClick={() => setImageUrl(s.url)}
+                    className="text-[11px] px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors cursor-pointer"
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+
+              {imageUrl && (
+                <div className="pt-2">
+                  <img
+                    src={imageUrl}
+                    alt="Preview"
+                    className="w-32 h-20 object-cover rounded-xl border border-slate-200"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Safety Risk Checkbox */}
+            <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="safetyRiskCheck"
+                checked={safetyRisk}
+                onChange={(e) => setSafetyRisk(e.target.checked)}
+                className="mt-0.5 rounded text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+              />
+              <label htmlFor="safetyRiskCheck" className="text-xs text-amber-900 cursor-pointer">
+                <span className="font-bold">Immediate Safety Risk:</span> Check this if this issue poses an imminent physical hazard to pedestrians or vehicular traffic.
+              </label>
+            </div>
+
+            {submitError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-500" />
+                <span>{submitError}</span>
+              </div>
+            )}
+
+            {submitSuccess && (
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                <span>{submitSuccess}</span>
+              </div>
+            )}
+
+            <div className="pt-2 flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={submitting}
+                className="py-3 px-6 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold text-xs sm:text-sm rounded-xl flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                {submitting ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <PlusCircle className="w-4 h-4" />
+                    <span>Submit Civic Report</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('my-reports')}
+                className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* TAB 2: MY REPORTS & STATUS */}
+      {activeTab === 'my-reports' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-extrabold text-slate-900">Reports You Sent</h2>
+              <p className="text-xs text-slate-500">
+                Track real-time progress, assigned workers, and approved repair budgets for your submissions.
+              </p>
+            </div>
+
             <button
-              onClick={onReportNavigate}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-xs transition-colors cursor-pointer"
+              type="button"
+              onClick={() => setActiveTab('new-report')}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
             >
-              Report Your First Civic Issue
+              <PlusCircle className="w-3.5 h-3.5" />
+              <span>Report Another Issue</span>
             </button>
           </div>
-        ) : (
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
-            {myComplaints.map((c) => (
-              <div
-                key={c.id}
-                onClick={() => onTrackNavigate(c.reference)}
-                className="p-5 hover:bg-slate-50 transition-colors cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-              >
-                <div className="space-y-1.5 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-bold text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded">
-                      {c.reference}
-                    </span>
-                    <StatusBadge status={c.status} size="sm" />
-                    <PriorityBadge priority={c.priority} size="sm" showIcon={false} />
-                  </div>
-                  <h3 className="font-bold text-slate-900 text-sm">{c.title}</h3>
-                  <div className="flex items-center gap-4 text-xs text-slate-500">
-                    <span className="flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                      {c.address}
-                    </span>
-                    <span>•</span>
-                    <span>{c.assignedDepartment}</span>
-                  </div>
-                </div>
 
-                <div className="flex items-center gap-3 self-end sm:self-center">
-                  <div className="text-right text-xs">
-                    <div className="text-slate-400 font-medium">
-                      {new Date(c.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </div>
-                    <div className="text-slate-600 font-semibold">{c.votesCount} endorsements</div>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-slate-400" />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Endorsed Community Issues */}
-      {upvotedComplaints.length > 0 && (
-        <div className="space-y-4 pt-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ThumbsUp className="w-4 h-4 text-teal-600" />
-              <h2 className="text-lg font-bold text-slate-900">Community Reports You Endorsed</h2>
+          {loading ? (
+            <div className="syntrix-card bg-white p-12 text-center space-y-3">
+              <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-xs text-slate-400">Loading your reports...</p>
             </div>
-            <span className="text-xs text-slate-500">{upvotedComplaints.length} reports supported</span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {upvotedComplaints.map((c) => (
-              <div
-                key={c.id}
-                onClick={() => onTrackNavigate(c.reference)}
-                className="bg-white p-4 rounded-2xl border border-slate-200 hover:border-indigo-500 transition-colors cursor-pointer flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between text-xs mb-2">
-                    <span className="font-mono font-bold text-teal-700">{c.reference}</span>
-                    <StatusBadge status={c.status} size="sm" />
-                  </div>
-                  <h4 className="font-semibold text-slate-900 text-xs line-clamp-1 mb-1">{c.title}</h4>
-                  <p className="text-[11px] text-slate-500 line-clamp-1">{c.address}</p>
-                </div>
-                <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-                  <span>{c.votesCount} total endorsements</span>
-                  <span className="text-teal-600 font-semibold">Track &rarr;</span>
-                </div>
+          ) : myComplaints.length === 0 ? (
+            <div className="syntrix-card bg-white p-10 text-center space-y-4 border border-dashed border-slate-300">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto">
+                <FileText className="w-6 h-6" />
               </div>
-            ))}
+              <div>
+                <h3 className="font-extrabold text-slate-800 text-base">No Reports Filed Yet</h3>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
+                  You have not submitted any civic complaints yet. Notice a pothole, broken streetlight, or garbage backlog? Report it now!
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('new-report')}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl transition-colors cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>Create Your First Report</span>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {myComplaints.map((c) => {
+                const isOverdue = c.isEscalatedDistrict || c.status === 'Escalated to District Admin';
+                const isAcked = Boolean(c.acknowledgedAt) || c.status !== 'Submitted';
+                const hasWorker = Boolean(c.assignedWorker);
+                const isResolved = c.status === 'Resolved';
+
+                return (
+                  <div
+                    key={c.id}
+                    className="syntrix-card bg-white p-5 border border-slate-200 hover:border-slate-300 transition-all space-y-4"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                      <div className="flex items-center gap-2.5 flex-wrap">
+                        <span className="font-mono text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                          {c.reference}
+                        </span>
+                        <StatusBadge status={c.status} />
+                        <PriorityBadge priority={c.priority} />
+                        <span className="text-xs text-slate-400">
+                          {new Date(c.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDetail(c)}
+                        className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 self-start sm:self-auto cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>View Audit Details</span>
+                      </button>
+                    </div>
+
+                    <div className="space-y-1">
+                      <h3 className="font-extrabold text-slate-900 text-base">{c.title}</h3>
+                      <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
+                        {c.description}
+                      </p>
+                      <div className="flex items-center gap-1.5 text-xs text-slate-400 pt-1">
+                        <MapPin className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                        <span>{c.address} ({c.locality})</span>
+                      </div>
+                    </div>
+
+                    {/* LIVE RESOLUTION STAGES PROGRESS BAR */}
+                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/70 space-y-2">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                        <span>Resolution Stages</span>
+                        {isOverdue && (
+                          <span className="text-rose-600 font-bold flex items-center gap-1">
+                            <ShieldAlert className="w-3 h-3" />
+                            <span>Escalated to District Admin (&gt;14d Unacknowledged)</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                        {/* Step 1: Submitted */}
+                        <div className="p-2 rounded-lg bg-emerald-100/70 border border-emerald-300 text-emerald-900 font-bold flex flex-col items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="text-[11px]">1. Submitted</span>
+                        </div>
+
+                        {/* Step 2: Acknowledged */}
+                        <div
+                          className={`p-2 rounded-lg border font-bold flex flex-col items-center gap-1 ${
+                            isAcked
+                              ? 'bg-emerald-100/70 border-emerald-300 text-emerald-900'
+                              : isOverdue
+                              ? 'bg-rose-50 border-rose-200 text-rose-700'
+                              : 'bg-white border-slate-200 text-slate-400'
+                          }`}
+                        >
+                          {isAcked ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          ) : (
+                            <Clock className="w-3.5 h-3.5" />
+                          )}
+                          <span className="text-[11px]">2. Acknowledged</span>
+                        </div>
+
+                        {/* Step 3: Assigned & Budget */}
+                        <div
+                          className={`p-2 rounded-lg border font-bold flex flex-col items-center gap-1 ${
+                            hasWorker
+                              ? 'bg-indigo-100/70 border-indigo-300 text-indigo-900'
+                              : 'bg-white border-slate-200 text-slate-400'
+                          }`}
+                        >
+                          {hasWorker ? (
+                            <HardHat className="w-3.5 h-3.5 text-indigo-600" />
+                          ) : (
+                            <Clock className="w-3.5 h-3.5" />
+                          )}
+                          <span className="text-[11px]">3. Assigned / Budget</span>
+                        </div>
+
+                        {/* Step 4: Resolved */}
+                        <div
+                          className={`p-2 rounded-lg border font-bold flex flex-col items-center gap-1 ${
+                            isResolved
+                              ? 'bg-emerald-100/70 border-emerald-300 text-emerald-900'
+                              : 'bg-white border-slate-200 text-slate-400'
+                          }`}
+                        >
+                          {isResolved ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          ) : (
+                            <Clock className="w-3.5 h-3.5" />
+                          )}
+                          <span className="text-[11px]">4. Resolved</span>
+                        </div>
+                      </div>
+
+                      {/* WORKER AND BUDGET DISPLAY FOR CITIZEN */}
+                      {(hasWorker || (c.budget && c.budget > 0)) && (
+                        <div className="mt-2 pt-2 border-t border-slate-200/60 flex flex-wrap items-center justify-between gap-3 text-xs">
+                          {c.assignedWorker && (
+                            <div className="flex items-center gap-1.5 text-indigo-900 font-semibold">
+                              <HardHat className="w-4 h-4 text-indigo-600" />
+                              <span>Assigned Worker/Crew: <strong className="text-slate-900">{c.assignedWorker}</strong></span>
+                            </div>
+                          )}
+
+                          {c.budget !== undefined && c.budget > 0 && (
+                            <div className="flex items-center gap-1 text-emerald-800 font-bold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                              <IndianRupee className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>Approved Repair Budget: ₹{c.budget.toLocaleString()}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ACKNOWLEDGEMENT INFO */}
+                      {c.acknowledgedAt && (
+                        <div className="text-[11px] text-slate-500 pt-1 flex items-center gap-1.5">
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span>
+                            Acknowledged on {new Date(c.acknowledgedAt).toLocaleString()}
+                            {c.acknowledgedByName ? ` by ${c.acknowledgedByName}` : ''}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* DETAIL MODAL FOR CITIZEN INSPECTION */}
+      {selectedComplaint && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-6 shadow-xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <span className="text-xs font-mono font-bold text-indigo-600">
+                  {selectedComplaint.reference}
+                </span>
+                <h3 className="text-lg font-extrabold text-slate-900 mt-0.5">
+                  {selectedComplaint.title}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedComplaint(null)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <StatusBadge status={selectedComplaint.status} />
+                <PriorityBadge priority={selectedComplaint.priority} />
+                <span className="text-xs text-slate-500">
+                  Assigned Department: <strong className="text-slate-800">{selectedComplaint.assignedDepartment}</strong>
+                </span>
+              </div>
+
+              <div className="p-3.5 bg-slate-50 rounded-xl text-xs space-y-2 border border-slate-200">
+                <div className="font-bold text-slate-700">Complaint Details</div>
+                <p className="text-slate-600 leading-relaxed">{selectedComplaint.description}</p>
+                <div className="text-slate-400">Location: {selectedComplaint.address} ({selectedComplaint.locality})</div>
+              </div>
+
+              {/* Worker & Budget Card */}
+              <div className="p-3.5 bg-indigo-50/60 border border-indigo-200 rounded-xl text-xs space-y-2">
+                <div className="font-bold text-indigo-900 flex items-center gap-1.5">
+                  <HardHat className="w-4 h-4 text-indigo-600" />
+                  <span>Repair Allocation &amp; Budget</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-slate-700">
+                  <div>
+                    <span className="text-slate-400">Assigned Worker:</span>{' '}
+                    <strong>{selectedComplaint.assignedWorker || 'Pending Assignment'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Budget Sanctioned:</span>{' '}
+                    <strong className="text-emerald-700 font-mono">
+                      {selectedComplaint.budget ? `₹${selectedComplaint.budget.toLocaleString()}` : 'Pending Budgeting'}
+                    </strong>
+                  </div>
+                </div>
+                {selectedComplaint.budgetNotes && (
+                  <div className="text-[11px] text-indigo-700 pt-1">
+                    Instructions: {selectedComplaint.budgetNotes}
+                  </div>
+                )}
+              </div>
+
+              {/* Photo if any */}
+              {selectedComplaint.imageUrl && (
+                <div>
+                  <div className="text-xs font-bold text-slate-700 mb-1.5">Photographic Evidence</div>
+                  <img
+                    src={selectedComplaint.imageUrl}
+                    alt="Evidence"
+                    className="w-full h-48 object-cover rounded-xl border border-slate-200"
+                  />
+                </div>
+              )}
+
+              {/* History Timeline */}
+              <div className="space-y-2 pt-2">
+                <div className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Audit History Events
+                </div>
+                {detailLoading ? (
+                  <div className="text-xs text-slate-400 py-3 text-center">Loading audit log...</div>
+                ) : complaintHistory.length === 0 ? (
+                  <div className="text-xs text-slate-400">No events logged yet.</div>
+                ) : (
+                  <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                    {complaintHistory.map((h) => (
+                      <div key={h.id} className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-xs space-y-0.5">
+                        <div className="flex items-center justify-between text-slate-400 text-[10px]">
+                          <span>{h.actorName} ({h.actorRole})</span>
+                          <span>{new Date(h.timestamp).toLocaleString()}</span>
+                        </div>
+                        <div className="font-bold text-slate-800">{h.publicUpdate}</div>
+                        {h.explanation && (
+                          <div className="text-slate-500 text-[11px] italic">{h.explanation}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedComplaint(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

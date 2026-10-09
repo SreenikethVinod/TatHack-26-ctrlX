@@ -216,7 +216,7 @@ apiRouter.patch(
   requireRole('official', 'admin', 'PANCHAYAT_OFFICER', 'SUPERVISOR', 'DISTRICT_REVIEWER', 'ADMIN'),
   (req: Request, res: Response) => {
     const { id } = req.params;
-    const { status, publicUpdate, resolutionSummary, afterImageUrl } = req.body;
+    const { status, publicUpdate, resolutionSummary, afterImageUrl, reason } = req.body;
 
     if (!status) {
       return res.status(400).json({ error: 'Target status is required.' });
@@ -234,7 +234,8 @@ apiRouter.patch(
           role: activeUser.role === 'official' ? 'Municipal Official' : 'System Admin',
           systemRole: activeUser.systemRole,
         },
-        publicUpdate,
+        reason: reason || publicUpdate,
+        publicUpdate: publicUpdate || reason,
         resolutionSummary,
         afterImageUrl,
       });
@@ -262,6 +263,164 @@ apiRouter.patch(
     }
   }
 );
+
+// Formally Acknowledge Complaint (Municipality Admin / District Admin)
+apiRouter.post('/complaints/:id/acknowledge', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { notes } = req.body;
+  const activeUser = req.user || resolveUserFromRequest(req);
+
+  try {
+    const updated = db.acknowledgeComplaint({
+      complaintId: id,
+      actor: activeUser,
+      notes,
+    });
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Complaint not found.' });
+    }
+
+    res.json({
+      success: true,
+      complaint: updated,
+      message: `Report ${updated.reference} officially acknowledged by ${activeUser.name}. 14-day statutory breach prevented.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to acknowledge report', details: err.message });
+  }
+});
+
+// Assign task to workers along with the budget required to fix the issue
+apiRouter.post('/complaints/:id/assign', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { worker, budget, budgetNotes } = req.body;
+
+  if (!worker || typeof worker !== 'string' || worker.trim().length < 2) {
+    return res.status(400).json({ error: 'Assigned worker or crew name is required.' });
+  }
+
+  const parsedBudget = Number(budget);
+  if (isNaN(parsedBudget) || parsedBudget < 0) {
+    return res.status(400).json({ error: 'A valid estimated budget amount is required (must be 0 or greater).' });
+  }
+
+  const activeUser = req.user || resolveUserFromRequest(req);
+
+  try {
+    const updated = db.assignWorkerAndBudget({
+      complaintId: id,
+      worker: worker.trim(),
+      budget: parsedBudget,
+      budgetNotes: typeof budgetNotes === 'string' ? budgetNotes.trim() : undefined,
+      actor: activeUser,
+    });
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Complaint not found.' });
+    }
+
+    res.json({
+      success: true,
+      complaint: updated,
+      message: `Task successfully assigned to "${worker.trim()}" with an approved budget of $${parsedBudget.toLocaleString()}.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to assign worker and budget', details: err.message });
+  }
+});
+
+// Get District Escalations (> 14 days unacknowledged or escalated)
+apiRouter.get('/district/escalations', (_req: Request, res: Response) => {
+  try {
+    const list = db.getEscalatedComplaints();
+    res.json({
+      success: true,
+      escalations: list,
+      count: list.length,
+      policyNote: 'Reports unacknowledged by the municipal department for over 14 days are automatically routed to District Administration.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load district escalations', details: err.message });
+  }
+});
+
+// District Admin Higher-Authority Executive Intervention
+apiRouter.post('/complaints/:id/district-action', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { actionType, directiveText, worker, emergencyBudget } = req.body;
+
+  if (!directiveText || typeof directiveText !== 'string' || directiveText.trim().length < 5) {
+    return res.status(400).json({ error: 'Executive directive explanation is required (min 5 chars).' });
+  }
+
+  const activeUser = req.user || resolveUserFromRequest(req);
+
+  try {
+    const updated = db.districtIntervene({
+      complaintId: id,
+      actionType: actionType || 'FORMAL_DIRECTIVE',
+      directiveText: directiveText.trim(),
+      worker: worker ? String(worker).trim() : undefined,
+      emergencyBudget: emergencyBudget ? Number(emergencyBudget) : undefined,
+      actor: activeUser,
+    });
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Complaint not found.' });
+    }
+
+    res.json({
+      success: true,
+      complaint: updated,
+      message: 'District executive intervention applied successfully.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to apply district intervention', details: err.message });
+  }
+});
+
+// Test/Demo Helper: Create sample 15-day unacknowledged report to test 14-day rule
+apiRouter.post('/complaints/simulate-overdue', (req: Request, res: Response) => {
+  const activeUser = req.user || resolveUserFromRequest(req);
+  try {
+    const complaint = db.createTestOverdueReport({
+      title: req.body.title,
+      description: req.body.description,
+      category: req.body.category,
+      address: req.body.address,
+      daysAged: req.body.daysAged ? Number(req.body.daysAged) : 15,
+      actor: activeUser,
+    });
+
+    res.status(201).json({
+      success: true,
+      complaint,
+      message: `Simulated report ${complaint.reference} created with age 15 days (unacknowledged). Automatically routed to District Admin.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to simulate overdue report', details: err.message });
+  }
+});
+
+// Age a specific report by N days
+apiRouter.post('/complaints/:id/age', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const days = req.body.days ? Number(req.body.days) : 15;
+
+  try {
+    const updated = db.simulateAgeComplaint(id, days);
+    if (!updated) return res.status(404).json({ error: 'Complaint not found.' });
+
+    res.json({
+      success: true,
+      complaint: updated,
+      message: `Complaint ${updated.reference} aged by ${days} days. ${updated.isEscalatedDistrict ? 'Automatically escalated to District Admin!' : ''}`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to age complaint', details: err.message });
+  }
+});
 
 // Update priority override (Authorized Official / Admin only)
 apiRouter.patch(
@@ -854,4 +1013,143 @@ apiRouter.post('/reset-demo-data', (_req: Request, res: Response) => {
     message: 'Demo dataset reset to initial 16 verified complaints, audit history, and demo accounts.',
     complaintsCount: fresh.complaints.length,
   });
+});
+
+// ==========================================
+// 11. REVERSE GEOCODING PROXY (Authentic Place Resolution)
+// ==========================================
+apiRouter.get('/geocode/reverse', async (req: Request, res: Response) => {
+  const { lat, lng } = req.query;
+  const latitude = parseFloat(lat as string);
+  const longitude = parseFloat(lng as string);
+
+  if (isNaN(latitude) || isNaN(longitude)) {
+    return res.status(400).json({ error: 'Valid lat and lng query parameters required.' });
+  }
+
+  try {
+    // 1. Try OpenStreetMap Nominatim with authentic User-Agent header (works from server)
+    const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&addressdetails=1`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4500);
+
+    const nominatimRes = await fetch(nominatimUrl, {
+      headers: {
+        'User-Agent': 'CivicPulse-App/2.0 (civicpulse@localhost)',
+        'Accept': 'application/json',
+        'Accept-Language': 'en',
+      },
+      signal: controller.signal,
+    }).catch(() => null);
+
+    clearTimeout(timeout);
+
+    if (nominatimRes && nominatimRes.ok) {
+      const data = (await nominatimRes.json()) as any;
+      const addr = data.address || {};
+
+      const houseNumber = addr.house_number ? `${addr.house_number} ` : '';
+      const road = addr.road || addr.street || addr.pedestrian || addr.residential || '';
+      const suburb = addr.suburb || addr.neighbourhood || addr.city_district || addr.quarter || addr.subdivision || '';
+      const city = addr.city || addr.town || addr.village || addr.municipality || addr.county || 'Metro Area';
+      const state = addr.state || '';
+      const postcode = addr.postcode ? ` ${addr.postcode}` : '';
+
+      let formattedAddress = '';
+      if (road) {
+        formattedAddress = `${houseNumber}${road}${suburb ? `, ${suburb}` : ''}, ${city}${state ? `, ${state}` : ''}${postcode}`;
+      } else if (data.display_name) {
+        formattedAddress = data.display_name.split(',').slice(0, 4).join(',').trim();
+      } else {
+        formattedAddress = `${suburb || 'Local Area'}, ${city}`;
+      }
+
+      const locality = suburb ? `${suburb}, ${city}` : city;
+
+      return res.json({
+        success: true,
+        address: formattedAddress,
+        locality,
+        city,
+        displayName: data.display_name || formattedAddress,
+        latitude,
+        longitude,
+        source: 'nominatim',
+      });
+    }
+
+    // 2. Secondary fallback: BigDataCloud reverse geocode API
+    const bdcUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`;
+    const bdcRes = await fetch(bdcUrl, { signal: AbortSignal.timeout(4000) }).catch(() => null);
+
+    if (bdcRes && bdcRes.ok) {
+      const bdcData = (await bdcRes.json()) as any;
+      const locality = bdcData.locality || bdcData.principalSubdivision || 'Local Area';
+      const city = bdcData.city || bdcData.locality || 'Metro Area';
+      const formatted = `${bdcData.locality || ''}${bdcData.locality && bdcData.city ? ', ' : ''}${bdcData.city || ''}, ${bdcData.principalSubdivision || ''}`.trim() || `GPS Coordinates: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+
+      return res.json({
+        success: true,
+        address: formatted,
+        locality,
+        city,
+        displayName: formatted,
+        latitude,
+        longitude,
+        source: 'bigdatacloud',
+      });
+    }
+  } catch (err: any) {
+    console.warn('Reverse geocoding server proxy warning:', err);
+  }
+
+  // 3. Fallback coordinates
+  res.json({
+    success: true,
+    address: `GPS Pin: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+    locality: `District Coordinates (${latitude.toFixed(3)}, ${longitude.toFixed(3)})`,
+    city: 'Current Location',
+    displayName: `Lat ${latitude.toFixed(5)}, Lng ${longitude.toFixed(5)}`,
+    latitude,
+    longitude,
+    source: 'coordinates',
+  });
+});
+
+// ==========================================
+// 12. CARTO BASEMAP TILE PROXY (Authenticated with CARTO API Key)
+// ==========================================
+apiRouter.get('/tiles/carto/:style/:z/:x/:y', async (req: Request, res: Response) => {
+  const { style, z, x, y } = req.params;
+  const cleanY = y.replace(/\.png$/, '');
+  const apiKey = process.env.CARTO_API_KEY || 'cb1_4far_1_2c1d034fd93bd4f62dd57110';
+
+  const validStyles: Record<string, string> = {
+    voyager: 'voyager',
+    positron: 'light_all',
+    light: 'light_all',
+    light_all: 'light_all',
+    dark: 'dark_all',
+    dark_all: 'dark_all',
+  };
+
+  const cartoStyle = validStyles[style.toLowerCase()] || 'voyager';
+  const subdomains = ['a', 'b', 'c', 'd'];
+  const sub = subdomains[Math.abs((parseInt(x) + parseInt(cleanY)) % subdomains.length)] || 'a';
+  const cartoTileUrl = `https://${sub}.basemaps.cartocdn.com/rastertiles/${cartoStyle}/${z}/${x}/${cleanY}.png?key=${apiKey}`;
+
+  try {
+    const tileRes = await fetch(cartoTileUrl);
+    if (!tileRes.ok) {
+      return res.status(tileRes.status).send('Tile fetch error');
+    }
+    const buffer = await tileRes.arrayBuffer();
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    res.setHeader('X-CARTO-Provider', 'CARTO Basemaps API Authenticated');
+    return res.send(Buffer.from(buffer));
+  } catch (err: any) {
+    console.error('CARTO tile proxy error:', err.message);
+    return res.status(502).send('Error proxying CARTO tile');
+  }
 });

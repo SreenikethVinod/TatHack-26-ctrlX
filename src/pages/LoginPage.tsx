@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  Shield,
   User,
   Building,
   Landmark,
@@ -10,131 +9,139 @@ import {
   ArrowRight,
   Lock,
   Mail,
-  Sparkles,
+  UserPlus,
+  LogIn,
   Check,
+  Shield,
+  Clock,
+  IndianRupee,
+  AlertTriangle,
+  ThumbsUp,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface Props {
-  onLoginSuccess: (targetTab: string) => void;
+  onLoginSuccess: (targetRole: 'citizen' | 'municipality' | 'district') => void;
   onCancel?: () => void;
 }
 
 type RoleType = 'citizen' | 'municipality' | 'district';
 
 export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
-  const { login, currentUser, users } = useAuth();
+  const { login, register, currentUser } = useAuth();
 
+  const [mode, setMode] = useState<'login' | 'register'>('login');
   const [activeRole, setActiveRole] = useState<RoleType>('citizen');
-  const [email, setEmail] = useState('aisha.chen@citizen.demo');
-  const [password, setPassword] = useState('DemoPass123!');
+
+  // Form states
+  const [email, setEmail] = useState('citizen@civicpulse.org');
+  const [password, setPassword] = useState('citizen123');
+  const [name, setName] = useState('');
+  const [department, setDepartment] = useState('Public Works & Roads');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Role metadata and sample personas
   const roleConfigs = {
     citizen: {
-      title: 'Citizen Resident Portal',
-      badge: 'Public Citizen Access',
+      role: 'citizen' as RoleType,
+      title: 'Citizen Resident',
+      badge: 'Public Citizen',
       badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200',
       icon: User,
-      description: 'Report localized civic issues, track real-time resolution stages, and upvote neighborhood infrastructure repairs.',
-      defaultEmail: 'aisha.chen@citizen.demo',
-      targetTab: 'dashboard',
-      personas: [
-        {
-          name: 'Aisha Chen',
-          email: 'aisha.chen@citizen.demo',
-          label: 'Citizen Lead (Central Metro)',
-          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
-        },
-        {
-          name: 'David Patel',
-          email: 'david.patel@citizen.demo',
-          label: 'Resident Reporter (Downtown)',
-          avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80',
-        },
-      ],
-      capabilities: [
-        'Submit photographic civic complaints with geolocation',
-        'Transparent reference ID tracking & audit timeline',
-        'Upvote community concerns to amplify triage priority',
-        'Public resolution verification with photographic evidence',
+      defaultEmail: 'citizen@civicpulse.org',
+      defaultPass: 'citizen123',
+      description: 'Report civic issues in your neighborhood, track the status of your reports in real time, and see assigned workers and budgets.',
+      features: [
+        'Create new civic reports with photo and location',
+        'Real-time status tracking (Submitted → Acknowledged → In Progress → Resolved)',
+        'View worker assigned and budget allocated to fix your report',
+        'Endorse & upvote neighborhood community issues',
       ],
     },
     municipality: {
-      title: 'Municipality Administration Desk',
-      badge: 'Local Body Official',
+      role: 'municipality' as RoleType,
+      title: 'Municipality Admin',
+      badge: 'Municipal Authority',
       badgeColor: 'bg-indigo-50 text-indigo-700 border-indigo-200',
       icon: Building,
-      description: 'Operations console for Panchayat and Municipal department heads to triage, assign work orders, and manage SLA timers.',
-      defaultEmail: 'admin@civicpulse.demo',
-      targetTab: 'official-dashboard',
-      personas: [
-        {
-          name: 'Administrator Vikram Sharma',
-          email: 'admin@civicpulse.demo',
-          label: 'Municipal Administrator (Full Access)',
-          avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=150&q=80',
-        },
-        {
-          name: 'Director Marcus Vance',
-          email: 'marcus.vance@gov.demo',
-          label: 'Director - Public Works & Roads',
-          avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80',
-        },
-        {
-          name: 'Inspector Sarah Jenkins',
-          email: 'sarah.jenkins@gov.demo',
-          label: 'Supervisor - Sanitation & Waste',
-          avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=150&q=80',
-        },
-      ],
-      capabilities: [
-        'Enforce 24h acknowledgement and 48h active SLA cycles',
-        'Assign departmental work orders and dispatch field teams',
-        'Override algorithmic priority with audit-logged justifications',
-        'Resolve complaints with required photographic evidence check',
+      defaultEmail: 'municipality@civicpulse.org',
+      defaultPass: 'muni123',
+      description: 'View incoming citizen reports, review & acknowledge them, and assign tasks to workers with repair budgets before the 14-day SLA expires.',
+      features: [
+        'Review incoming civic complaints across city wards',
+        'Formally Acknowledge reports to prevent 14-day automatic escalation',
+        'Assign tasks to workers and specify repair budget required',
+        'Monitor the 14-day statutory countdown on unacknowledged reports',
       ],
     },
     district: {
-      title: 'District Governance & Oversight',
-      badge: 'District Reviewer & Collectorate',
+      role: 'district' as RoleType,
+      title: 'District Admin',
+      badge: 'Higher Authority Oversight',
       badgeColor: 'bg-purple-50 text-purple-700 border-purple-200',
       icon: Landmark,
-      description: 'Collectorate-level oversight portal for escalated complaints, inactive 3-cycle municipal bottlenecks, and district accountability.',
-      defaultEmail: 'elena.rostova@district.demo',
-      targetTab: 'official-dashboard',
-      personas: [
-        {
-          name: 'Commissioner Elena Rostova',
-          email: 'elena.rostova@district.demo',
-          label: 'District Reviewer - Collectorate Oversight',
-          avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=150&q=80',
-        },
-      ],
-      capabilities: [
-        'Inspect the District Escalation Queue for stalled issues',
-        'Intervene in 3-cycle inactive municipal bottlenecks',
-        'Audit departmental resolution velocities & KPI benchmarks',
-        'Review evidence verification logs before official sign-off',
+      defaultEmail: 'district@civicpulse.org',
+      defaultPass: 'district123',
+      description: 'Higher-authority oversight console for all reports remaining unacknowledged by municipal bodies for over 14 days, with executive intervention powers.',
+      features: [
+        'Dedicated queue for reports Unacknowledged > 14 Days',
+        'Higher-authority executive intervention and emergency funding',
+        'Issue formal compliance directives to municipal department heads',
+        'District-wide governance compliance & responsiveness analytics',
       ],
     },
   };
 
-  const handleRoleSwitch = (role: RoleType) => {
+  const handleRoleSelect = (role: RoleType) => {
     setActiveRole(role);
     setEmail(roleConfigs[role].defaultEmail);
-    setPassword('DemoPass123!');
+    setPassword(roleConfigs[role].defaultPass);
     setErrorMsg(null);
     setSuccessMsg(null);
   };
 
-  const handleSelectPersona = (personaEmail: string) => {
-    setEmail(personaEmail);
-    setPassword('DemoPass123!');
+  const handleQuickLogin = async (role: RoleType) => {
+    setActiveRole(role);
+    const cfg = roleConfigs[role];
+    setEmail(cfg.defaultEmail);
+    setPassword(cfg.defaultPass);
+    setLoading(true);
     setErrorMsg(null);
+    setSuccessMsg(null);
+
+    try {
+      await login(cfg.defaultEmail, cfg.defaultPass);
+      setSuccessMsg(`Welcome! Logged in as ${cfg.title}.`);
+      setTimeout(() => {
+        onLoginSuccess(role);
+      }, 500);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Quick login failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDirectLogin = async (targetEmail: string, targetPass: string, role: RoleType) => {
+    setActiveRole(role);
+    setEmail(targetEmail);
+    setPassword(targetPass);
+    setLoading(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    try {
+      const user = await login(targetEmail, targetPass);
+      setSuccessMsg(`Welcome! Logged in as ${user.name}.`);
+      setTimeout(() => {
+        onLoginSuccess(role);
+      }, 500);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Login failed.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -149,40 +156,75 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
     setSuccessMsg(null);
 
     try {
-      const user = await login(email.trim(), password.trim());
-      setSuccessMsg(`Welcome, ${user.name}! Authenticated as ${user.role.toUpperCase()}.`);
+      if (mode === 'login') {
+        const user = await login(email.trim(), password.trim());
+        setSuccessMsg(`Welcome, ${user.name}!`);
 
-      setTimeout(() => {
-        const target = roleConfigs[activeRole].targetTab;
-        onLoginSuccess(target);
-      }, 700);
+        // Determine destination role
+        let targetRole: RoleType = activeRole;
+        if ((user as any).systemRole === 'DISTRICT_REVIEWER' || user.email.toLowerCase().includes('district')) {
+          targetRole = 'district';
+        } else if (user.role === 'official' || (user as any).systemRole === 'SUPERVISOR' || (user as any).systemRole === 'PANCHAYAT_OFFICER' || user.email.toLowerCase().includes('municipality')) {
+          targetRole = 'municipality';
+        } else {
+          targetRole = 'citizen';
+        }
+
+        setTimeout(() => {
+          onLoginSuccess(targetRole);
+        }, 500);
+      } else {
+        // Register flow
+        if (!name.trim()) {
+          setErrorMsg('Please enter your full name.');
+          setLoading(false);
+          return;
+        }
+
+        let systemRole = 'CITIZEN';
+        if (activeRole === 'municipality') systemRole = 'SUPERVISOR';
+        if (activeRole === 'district') systemRole = 'DISTRICT_REVIEWER';
+
+        const user = await register({
+          name: name.trim(),
+          email: email.trim(),
+          password: password.trim(),
+          role: systemRole,
+          department: activeRole !== 'citizen' ? department : undefined,
+        });
+
+        setSuccessMsg(`Account created successfully! Welcome, ${user.name}.`);
+        setTimeout(() => {
+          onLoginSuccess(activeRole);
+        }, 600);
+      }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Authentication failed. Please verify credentials.');
+      setErrorMsg(err.message || 'Authentication error.');
     } finally {
       setLoading(false);
     }
   };
 
-  const currentConfig = roleConfigs[activeRole];
-  const Icon = currentConfig.icon;
+  const currentCfg = roleConfigs[activeRole];
+  const Icon = currentCfg.icon;
 
   return (
-    <div className="max-w-5xl mx-auto py-8 px-4 sm:px-6 space-y-8 animate-in fade-in duration-200">
-      {/* Brand Header */}
+    <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6 space-y-8 animate-in fade-in duration-200">
+      {/* Platform Branding */}
       <div className="text-center space-y-2">
-        <div className="inline-flex items-center gap-2 px-3 py-1 bg-white border border-slate-200 rounded-full text-xs font-semibold text-slate-600 shadow-2xs">
-          <div className="w-2 h-2 rounded-full bg-indigo-600" />
-          <span>CivicPulse Syntrix Governance Portal</span>
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-slate-200 rounded-full text-xs font-semibold text-slate-700 shadow-2xs">
+          <div className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse" />
+          <span>CivicPulse Governance &amp; Grievance Management</span>
         </div>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
-          Role-Based Authentication Access
+          Civic Portal Login
         </h1>
-        <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
-          Select your civic persona to enter the appropriate governance dashboard.
+        <p className="text-xs sm:text-sm text-slate-500 max-w-lg mx-auto">
+          Sign in to access your role-specific console: Citizen, Municipality Admin, or District Higher Authority.
         </p>
       </div>
 
-      {/* Role Selector Tabs (Clean Syntrix Flat Cards) */}
+      {/* Role Selection Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {(['citizen', 'municipality', 'district'] as RoleType[]).map((role) => {
           const cfg = roleConfigs[role];
@@ -190,97 +232,194 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
           const isSelected = activeRole === role;
 
           return (
-            <button
+            <div
               key={role}
-              onClick={() => handleRoleSwitch(role)}
-              type="button"
-              className={`p-4 rounded-2xl text-left border transition-all cursor-pointer relative ${
+              className={`p-4 rounded-2xl border transition-all relative flex flex-col justify-between ${
                 isSelected
                   ? 'bg-white border-indigo-600 ring-2 ring-indigo-600/10 shadow-xs'
-                  : 'bg-white/60 border-slate-200 hover:bg-white hover:border-slate-300'
+                  : 'bg-white/70 border-slate-200 hover:bg-white hover:border-slate-300'
               }`}
             >
-              {isSelected && (
-                <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center">
-                  <Check className="w-3 h-3 stroke-[3]" />
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                      isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    <TabIcon className="w-5 h-5" />
+                  </div>
+                  {isSelected && (
+                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs">
+                      <Check className="w-3 h-3 stroke-[3]" />
+                    </span>
+                  )}
                 </div>
-              )}
-              <div
-                className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${
-                  isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
-                }`}
-              >
-                <TabIcon className="w-4.5 h-4.5" />
+
+                <button
+                  type="button"
+                  onClick={() => handleRoleSelect(role)}
+                  className="text-left w-full cursor-pointer"
+                >
+                  <div className="text-sm font-bold text-slate-900">{cfg.title}</div>
+                  <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-2 leading-relaxed">
+                    {cfg.description}
+                  </div>
+                </button>
               </div>
-              <div className="text-xs font-bold text-slate-900">{cfg.title.split(' ')[0]} {cfg.title.split(' ')[1]}</div>
-              <div className="text-[11px] text-slate-400 mt-0.5 line-clamp-1">{cfg.badge}</div>
-            </button>
+
+              {/* 1-Click Quick Login Buttons */}
+              {role === 'citizen' ? (
+                <div className="mt-4 space-y-1.5 w-full">
+                  <button
+                    type="button"
+                    onClick={() => handleDirectLogin('citizen@civicpulse.org', 'citizen123', 'citizen')}
+                    disabled={loading}
+                    className="w-full py-1.5 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                  >
+                    <LogIn className="w-3.5 h-3.5" />
+                    <span>Citizen 1 (Alex Morgan)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDirectLogin('citizen2@civicpulse.org', 'citizen123', 'citizen')}
+                    disabled={loading}
+                    className="w-full py-1.5 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
+                  >
+                    <ThumbsUp className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Citizen 2 (Maya Lin - Endorse)</span>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleQuickLogin(role)}
+                  disabled={loading}
+                  className={`mt-4 w-full py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    isSelected
+                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>1-Click Log In as {cfg.title.split(' ')[0]}</span>
+                </button>
+              )}
+            </div>
           );
         })}
       </div>
 
-      {/* Main Login Card (2 Columns) */}
+      {/* Main Authentication Card */}
       <div className="syntrix-card bg-white p-6 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left Column: Form & Persona Switcher (7 cols) */}
+        {/* Left Form: Sign In / Register (7 cols) */}
         <div className="lg:col-span-7 space-y-6">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
             <div>
               <div className="flex items-center gap-2">
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border uppercase tracking-wider ${currentConfig.badgeColor}`}>
-                  {currentConfig.badge}
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border uppercase tracking-wider ${currentCfg.badgeColor}`}>
+                  {currentCfg.badge}
+                </span>
+                <span className="text-xs text-slate-400 font-medium">
+                  {mode === 'login' ? 'Authentication' : 'Create Account'}
                 </span>
               </div>
-              <h2 className="text-xl font-extrabold text-slate-900 mt-1">{currentConfig.title}</h2>
+              <h2 className="text-xl font-extrabold text-slate-900 mt-1">
+                {mode === 'login' ? `Sign In as ${currentCfg.title}` : `Register as ${currentCfg.title}`}
+              </h2>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-700">
-              <Icon className="w-5 h-5" />
-            </div>
+
+            {/* Mode Toggle Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setMode(mode === 'login' ? 'register' : 'login');
+                setErrorMsg(null);
+                setSuccessMsg(null);
+              }}
+              className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition-colors cursor-pointer"
+            >
+              {mode === 'login' ? 'Need an account? Register' : 'Have an account? Log In'}
+            </button>
           </div>
 
-          <p className="text-xs text-slate-500 leading-relaxed">
-            {currentConfig.description}
-          </p>
-
-          {/* Quick Persona Selector */}
-          <div className="space-y-2">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              Quick 1-Click Demo Profiles ({activeRole})
-            </span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {currentConfig.personas.map((persona) => {
-                const isChosen = email === persona.email;
-                return (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {activeRole === 'citizen' && mode === 'login' && (
+              <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl space-y-2">
+                <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
+                  <span>Select Citizen Persona:</span>
+                  <span className="text-[10px] text-indigo-600 font-bold">2 Citizen Accounts for Endorsement Testing</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <button
-                    key={persona.email}
                     type="button"
-                    onClick={() => handleSelectPersona(persona.email)}
-                    className={`p-2.5 rounded-xl border text-left flex items-center gap-3 transition-colors cursor-pointer ${
-                      isChosen
-                        ? 'bg-indigo-50/60 border-indigo-400 text-indigo-900'
-                        : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
+                    onClick={() => {
+                      setEmail('citizen@civicpulse.org');
+                      setPassword('citizen123');
+                    }}
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      email === 'citizen@civicpulse.org'
+                        ? 'bg-white border-emerald-600 ring-2 ring-emerald-500/20 shadow-xs'
+                        : 'bg-white/60 border-slate-200 hover:bg-white text-slate-600'
                     }`}
                   >
-                    <img
-                      src={persona.avatar}
-                      alt={persona.name}
-                      className="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-200"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-bold truncate">{persona.name}</div>
-                      <div className="text-[10px] text-slate-400 truncate">{persona.label}</div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-bold text-slate-900">Citizen 1 (Alex Morgan)</div>
+                      {email === 'citizen@civicpulse.org' && <Check className="w-3.5 h-3.5 text-emerald-600" />}
                     </div>
+                    <div className="text-[10px] text-slate-500 font-mono">citizen@civicpulse.org</div>
+                    <div className="text-[9px] text-emerald-700 font-semibold mt-1">Submit Initial Reports</div>
                   </button>
-                );
-              })}
-            </div>
-          </div>
 
-          {/* Credentials Form */}
-          <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmail('citizen2@civicpulse.org');
+                      setPassword('citizen123');
+                    }}
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      email === 'citizen2@civicpulse.org'
+                        ? 'bg-white border-indigo-600 ring-2 ring-indigo-500/20 shadow-xs'
+                        : 'bg-white/60 border-slate-200 hover:bg-white text-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-bold text-slate-900">Citizen 2 (Maya Lin)</div>
+                      {email === 'citizen2@civicpulse.org' && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-mono">citizen2@civicpulse.org</div>
+                    <div className="text-[9px] text-indigo-700 font-bold mt-1">Endorse &amp; Corroborate Issues</div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {mode === 'register' && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Full Name</span>
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required={mode === 'register'}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                  placeholder="e.g. Alex Morgan"
+                />
+              </div>
+            )}
+
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                <Mail className="w-3.5 h-3.5 text-slate-400" />
-                <span>Authorized Email</span>
+              <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Email Address</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  Default: {currentCfg.defaultEmail}
+                </span>
               </label>
               <input
                 type="email"
@@ -288,7 +427,7 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
-                placeholder="officer@gov.demo"
+                placeholder={currentCfg.defaultEmail}
               />
             </div>
 
@@ -298,7 +437,9 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
                   <Lock className="w-3.5 h-3.5 text-slate-400" />
                   <span>Password</span>
                 </span>
-                <span className="text-[10px] text-slate-400 font-mono">Demo: DemoPass123!</span>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  Default: {currentCfg.defaultPass}
+                </span>
               </label>
               <input
                 type="password"
@@ -309,6 +450,28 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
                 placeholder="••••••••••••"
               />
             </div>
+
+            {mode === 'register' && activeRole !== 'citizen' && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <Building className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Department</span>
+                </label>
+                <select
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                >
+                  <option value="Public Works & Roads">Public Works & Roads</option>
+                  <option value="Sanitation & Waste Management">Sanitation & Waste Management</option>
+                  <option value="Drainage & Flood Control">Drainage & Flood Control</option>
+                  <option value="Electrical & Street Lighting">Electrical & Street Lighting</option>
+                  <option value="Water Supply & Sanitation Board">Water Supply & Sanitation Board</option>
+                  <option value="Public Safety & Urban Infrastructure">Public Safety & Urban Infrastructure</option>
+                  <option value="District Headquarters & Oversight">District Headquarters & Oversight</option>
+                </select>
+              </div>
+            )}
 
             {errorMsg && (
               <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
@@ -332,10 +495,16 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
               >
                 {loading ? (
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
+                ) : mode === 'login' ? (
                   <>
                     <KeyRound className="w-4 h-4" />
-                    <span>Sign In to {currentConfig.title.split(' ')[0]}</span>
+                    <span>Enter as {currentCfg.title}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="w-4 h-4" />
+                    <span>Create &amp; Sign In</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </>
                 )}
@@ -354,48 +523,47 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
           </form>
         </div>
 
-        {/* Right Column: Role Capabilities & Governance Rules (5 cols) */}
+        {/* Right Info: Role Responsibilities & Governance Rules (5 cols) */}
         <div className="lg:col-span-5 bg-slate-50 rounded-2xl p-6 border border-slate-200/80 space-y-5">
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Role Authority &amp; System Scope
-            </span>
-            <h3 className="font-extrabold text-slate-900 text-sm mt-1">
-              Active Security Privileges
-            </h3>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-800 shadow-2xs">
+              <Icon className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Governance Scope
+              </span>
+              <h3 className="font-extrabold text-slate-900 text-sm">
+                {currentCfg.title} Privileges
+              </h3>
+            </div>
           </div>
 
           <div className="space-y-3">
-            {currentConfig.capabilities.map((cap, i) => (
+            {currentCfg.features.map((feature, i) => (
               <div key={i} className="flex items-start gap-2.5 text-xs text-slate-600 leading-snug">
                 <div className="w-4 h-4 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0 mt-0.5">
                   <Check className="w-2.5 h-2.5 stroke-[3]" />
                 </div>
-                <span>{cap}</span>
+                <span>{feature}</span>
               </div>
             ))}
           </div>
 
-          {/* Current Session Indicator */}
-          <div className="pt-4 border-t border-slate-200/60 text-xs space-y-1.5">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              Currently Logged As
-            </span>
-            <div className="flex items-center gap-2.5 bg-white p-2.5 rounded-xl border border-slate-200">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <div className="min-w-0 flex-1">
-                <div className="font-bold text-slate-900 truncate text-xs">
-                  {currentUser?.name || 'Guest Resident'}
-                </div>
-                <div className="text-[10px] text-slate-400 truncate">
-                  {currentUser?.email || 'Public Citizen Session'}
-                </div>
-              </div>
+          {/* 14-Day Statutory Rule Callout */}
+          <div className="p-3.5 bg-amber-50 border border-amber-200/80 rounded-xl text-[11px] text-amber-900 space-y-1">
+            <div className="font-bold flex items-center gap-1.5 text-amber-800">
+              <Clock className="w-3.5 h-3.5" />
+              <span>14-Day Unacknowledged Rule</span>
             </div>
+            <p className="text-amber-700 leading-relaxed text-[10px]">
+              If a citizen report remains unacknowledged for more than 14 days, the platform automatically escalates the report directly to the District Admin for higher-authority intervention.
+            </p>
           </div>
 
-          <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl text-[11px] text-indigo-900 leading-relaxed">
-            <strong className="font-bold">Backend Enforced:</strong> All status updates, SLA resets, and priority overrides require authenticated role permissions.
+          {/* Live Session Notice */}
+          <div className="pt-2 text-[11px] text-slate-400">
+            Current session: <span className="font-semibold text-slate-600">{currentUser ? currentUser.name : 'Not signed in'}</span>
           </div>
         </div>
       </div>

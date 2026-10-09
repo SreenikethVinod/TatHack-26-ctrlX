@@ -158,6 +158,7 @@ export const ExploreIssuesPage: React.FC<Props> = ({ onSelectComplaint, onReport
               <option value="streetlights">Lighting &amp; Electrical</option>
               <option value="water_supply">Water Supply</option>
               <option value="public_safety">Public Safety</option>
+              <option value="other">Other Civic Issues</option>
             </select>
           </div>
 
