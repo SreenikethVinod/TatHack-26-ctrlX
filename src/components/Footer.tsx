@@ -55,17 +55,7 @@ export const Footer: React.FC<Props> = ({ onOpenPitch, onDataReset }) => {
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition-colors"
             >
               <Presentation className="w-3.5 h-3.5 text-amber-400" />
-              <span>Pitch Deck & Judge Q&A</span>
-            </button>
-
-            <button
-              onClick={handleReset}
-              disabled={resetting}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-rose-950/60 hover:text-rose-200 hover:border-rose-800 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 transition-colors"
-              title="Reset complaints back to default seed records"
-            >
-              <RotateCcw className={`w-3.5 h-3.5 ${resetting ? 'animate-spin text-teal-400' : 'text-slate-400'}`} />
-              <span>{resetting ? 'Resetting...' : 'Reset Demo Data'}</span>
+              <span>Pitch Deck &amp; Presentation</span>
             </button>
           </div>
         </div>
@@ -78,7 +68,7 @@ export const Footer: React.FC<Props> = ({ onOpenPitch, onDataReset }) => {
 
         <div className="mt-8 pt-6 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between text-[11px] text-slate-400 gap-3">
           <p>
-            Built by a 4-student hackathon team for the Civic Tech & Municipal Governance Track. All records are clearly identified demo data.
+            Official civic engagement platform for community grievance redressal, municipal SLA tracking, and public auditability.
           </p>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1 text-slate-400">

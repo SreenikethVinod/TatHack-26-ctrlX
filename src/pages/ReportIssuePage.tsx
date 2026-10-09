@@ -21,10 +21,11 @@ import {
   Lock,
 } from 'lucide-react';
 import { api } from '../lib/api';
-import { ComplaintCategory, PriorityLevel, PhotoVerificationMetadata } from '../types';
+import { ComplaintCategory, PriorityLevel, PhotoVerificationMetadata, AIVerificationResult } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { detectRealLocation, reverseGeocodeCoordinates } from '../lib/geo';
 import { InAppCameraCapture } from '../components/InAppCameraCapture';
+import { AIVerifierCard } from '../../ai-module/AIVerifierCard.tsx';
 
 interface Props {
   onSuccessNavigate: (reference: string) => void;
@@ -61,6 +62,31 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
     canonicalReference: string | null;
     message: string;
   } | null>(null);
+
+  // AI Module Forensics & Triage State
+  const [aiVerification, setAiVerification] = useState<AIVerificationResult | null>(null);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+
+  const handleRunAIVerification = async (imgToVerify?: string) => {
+    const photo = imgToVerify !== undefined ? imgToVerify : imageUrl;
+    setAiAnalyzing(true);
+    try {
+      const res = await api.verifyWithAI({
+        title: title || 'Municipal infrastructure issue',
+        description: description || 'Civic issue report',
+        category,
+        imageUrl: photo || undefined,
+        safetyRisk,
+      });
+      if (res && res.verification) {
+        setAiVerification(res.verification);
+      }
+    } catch (err) {
+      console.warn('AI verification transient error:', err);
+    } finally {
+      setAiAnalyzing(false);
+    }
+  };
 
   const categories = [
     {
@@ -316,6 +342,17 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
                   SHA-256: <span className="text-slate-800">{photoFingerprint}</span>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* AI Forensics & Severity Verdict Card */}
+          {aiVerification && (
+            <div className="space-y-1.5 text-left">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                <span>AI Forensics &amp; Severity Assessment</span>
+              </span>
+              <AIVerifierCard verification={aiVerification} compact />
             </div>
           )}
 
@@ -626,6 +663,8 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
                 setAddress(`GPS Pin: ${pLat.toFixed(5)}, ${pLng.toFixed(5)}`);
               }
             }
+            // Run AI Forensics & Triage immediately on captured photo
+            handleRunAIVerification(imageUrl);
           }}
           onPhotoCleared={() => {
             setImageUrl('');
@@ -633,8 +672,56 @@ export const ReportIssuePage: React.FC<Props> = ({ onSuccessNavigate, onExploreN
             setPhotoMetadata(null);
             setIsFlaggedMismatch(false);
             setPhotoDistanceMeters(null);
+            setAiVerification(null);
           }}
         />
+
+        {/* 6. AI Forensics & Severity Triage (ai-module) */}
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 rounded-xl bg-indigo-100 text-indigo-700">
+                <Sparkles className="w-4 h-4" />
+              </span>
+              <div>
+                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  AI Image Forensics &amp; Severity Triage
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  Detects real camera photos vs synthetic AI tampering &amp; calculates municipal priority score
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleRunAIVerification()}
+              disabled={aiAnalyzing}
+              className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 shrink-0 self-start sm:self-auto"
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${aiAnalyzing ? 'animate-spin text-indigo-600' : ''}`} />
+              <span>{aiAnalyzing ? 'Analyzing Image...' : aiVerification ? 'Re-Analyze with AI' : 'Run AI Inspection'}</span>
+            </button>
+          </div>
+
+          {aiAnalyzing && (
+            <div className="p-5 rounded-2xl bg-indigo-50/60 border border-indigo-200 text-center space-y-2 animate-in fade-in">
+              <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
+              <div className="text-xs font-bold text-indigo-950">
+                Running Gemini Vision Forensics &amp; Severity Model...
+              </div>
+              <div className="text-[11px] text-indigo-700">
+                Evaluating optical sensor grain, diffusion artifacts, and calculating safety hazard scores.
+              </div>
+            </div>
+          )}
+
+          {aiVerification && !aiAnalyzing && (
+            <div className="animate-in fade-in duration-200">
+              <AIVerifierCard verification={aiVerification} />
+            </div>
+          )}
+        </div>
 
         {/* Reporter info */}
         <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs text-slate-600">

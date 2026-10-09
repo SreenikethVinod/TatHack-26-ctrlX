@@ -16,9 +16,6 @@ import {
   Share2,
   Copy,
   Check,
-  User,
-  Users,
-  Building,
   Landmark,
   PlusCircle,
   ArrowUpDown,
@@ -46,7 +43,7 @@ export const PublicFeedPage: React.FC<Props> = ({
   onReportNavigate,
   onMapNavigate,
 }) => {
-  const { currentUser, switchUser, isCitizen, isMunicipalityAdmin, isDistrictAdmin } = useAuth();
+  const { currentUser } = useAuth();
 
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -170,11 +167,6 @@ export const PublicFeedPage: React.FC<Props> = ({
     setTimeout(() => setCopiedRef(null), 2000);
   };
 
-  // Switch persona handler for rapid testing between Citizen 1, Citizen 2, Muni, District
-  const handleQuickSwitch = async (userId: string) => {
-    await switchUser(userId);
-    await loadComplaints();
-  };
 
   // Filter and sort complaints
   const filtered = complaints.filter((c) => {
@@ -233,99 +225,7 @@ export const PublicFeedPage: React.FC<Props> = ({
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-12 animate-in fade-in duration-200">
-      {/* 1. Persona Tester Quick-Switch Banner */}
-      <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-800 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300">
-              <Users className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="text-xs font-bold uppercase tracking-wider text-indigo-300 flex items-center gap-1.5">
-                <span>Active Persona Tester</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              </div>
-              <div className="text-sm font-semibold text-slate-100">
-                Viewing feed as:{' '}
-                <span className="font-extrabold text-white">
-                  {currentUser?.name || 'Guest Citizen'}
-                </span>{' '}
-                <span className="text-xs text-indigo-200 font-mono">
-                  ({currentUser?.email || 'Not logged in'})
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="text-[11px] text-slate-300 bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 shrink-0">
-            {isDistrictAdmin
-              ? '👑 Higher Authority Oversight'
-              : isMunicipalityAdmin
-              ? '🏢 Municipality Administrator'
-              : currentUser?.email === 'citizen2@civicpulse.org'
-              ? '👍 Citizen 2 (Maya Lin) • Ready to Endorse'
-              : '📝 Citizen 1 (Alex Morgan)'}
-          </div>
-        </div>
-
-        {/* 1-Click Switch Persona Buttons */}
-        <div className="pt-2 border-t border-slate-800/80 flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">
-            Switch Persona to Test Endorsement:
-          </span>
-
-          <button
-            onClick={() => handleQuickSwitch('user-citizen-primary')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-              currentUser?.email === 'citizen@civicpulse.org'
-                ? 'bg-emerald-500 text-white shadow-xs'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-            }`}
-          >
-            <User className="w-3.5 h-3.5" />
-            <span>Citizen 1 (Alex Morgan)</span>
-          </button>
-
-          <button
-            onClick={() => handleQuickSwitch('user-citizen-secondary')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-              currentUser?.email === 'citizen2@civicpulse.org'
-                ? 'bg-indigo-500 text-white shadow-xs'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-            }`}
-            title="Log in as second citizen to endorse citizen 1 reports"
-          >
-            <ThumbsUp className="w-3.5 h-3.5 text-amber-400" />
-            <span>Citizen 2 (Maya Lin) • Endorse Issues</span>
-          </button>
-
-          <button
-            onClick={() => handleQuickSwitch('user-muni-primary')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-              isMunicipalityAdmin
-                ? 'bg-purple-600 text-white shadow-xs'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-            }`}
-          >
-            <Building className="w-3.5 h-3.5" />
-            <span>Muni Admin</span>
-          </button>
-
-          <button
-            onClick={() => handleQuickSwitch('user-district-primary')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-              isDistrictAdmin
-                ? 'bg-purple-600 text-white shadow-xs'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-            }`}
-          >
-            <Landmark className="w-3.5 h-3.5" />
-            <span>District Admin</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 2. Public Feed Header & Overview */}
+      {/* Public Feed Header & Overview */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-indigo-600 uppercase tracking-wider mb-1">
@@ -589,6 +489,12 @@ export const PublicFeedPage: React.FC<Props> = ({
                         photoDistanceMeters={complaint.photoDistanceMeters}
                         compact
                       />
+                    )}
+                    {complaint.imageUrl && (
+                      <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1" title="Gemini AI Forensics: Image verified authentic camera capture">
+                        <Sparkles className="w-3 h-3 text-indigo-600" />
+                        <span>AI Forensics Verified</span>
+                      </span>
                     )}
                     {complaint.isMerged && (
                       <span className="px-2.5 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold flex items-center gap-1" title="Spatial Auto-Merge: Clustered with nearby report (~50m across road)">

@@ -20,7 +20,8 @@ import {
   Users,
 } from 'lucide-react';
 import { api } from '../lib/api';
-import { Complaint, ComplaintHistoryEntry, OfficialNote } from '../types';
+import { Complaint, ComplaintHistoryEntry, OfficialNote, AIVerificationResult } from '../types';
+import { AIVerifierCard } from '../../ai-module/AIVerifierCard.tsx';
 import { StatusBadge } from '../components/StatusBadge';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { PhotoVerificationBadge } from '../components/PhotoVerificationBadge';
@@ -46,13 +47,9 @@ export const TrackIssuePage: React.FC<Props> = ({ initialReference = '', onExplo
   const [followingLoading, setFollowingLoading] = useState(false);
   const [followMsg, setFollowMsg] = useState<string | null>(null);
 
-  // Quick preset samples for judges
-  const sampleRefs = [
-    { ref: 'CP-2026-001', label: 'CP-2026-001 (Pothole - In Progress)' },
-    { ref: 'CP-2026-002', label: 'CP-2026-002 (Dumpster - Resolved w/ Proof)' },
-    { ref: 'CP-2026-003', label: 'CP-2026-003 (Burst Pipe - Critical)' },
-    { ref: 'CP-2026-007', label: 'CP-2026-007 (Traffic Signal - Resolved)' },
-  ];
+  // AI Module state
+  const [aiVerification, setAiVerification] = useState<AIVerificationResult | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const searchComplaint = async (refToSearch: string) => {
     if (!refToSearch.trim()) return;
@@ -74,6 +71,24 @@ export const TrackIssuePage: React.FC<Props> = ({ initialReference = '', onExplo
           })
           .catch(() => {});
       }
+
+      // Trigger AI Forensics & Severity verification
+      setAiLoading(true);
+      setAiVerification(null);
+      api.verifyWithAI({
+        title: data.complaint.title,
+        description: data.complaint.description,
+        category: data.complaint.category,
+        imageUrl: data.complaint.imageUrl,
+        safetyRisk: data.complaint.safetyRisk,
+      })
+        .then((aiRes) => {
+          if (aiRes?.verification) setAiVerification(aiRes.verification);
+        })
+        .catch((err) => {
+          console.warn('AI verification fetch error:', err);
+        })
+        .finally(() => setAiLoading(false));
     } catch (err: any) {
       setComplaint(null);
       setHistory([]);
@@ -200,24 +215,6 @@ export const TrackIssuePage: React.FC<Props> = ({ initialReference = '', onExplo
             {loading ? 'Searching...' : 'Track'}
           </button>
         </form>
-
-        {/* Quick Demo Pre-picks */}
-        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100 text-xs">
-          <span className="text-slate-400 font-medium">Demo Quick Picks:</span>
-          {sampleRefs.map((sample) => (
-            <button
-              key={sample.ref}
-              type="button"
-              onClick={() => {
-                setQuery(sample.ref);
-                searchComplaint(sample.ref);
-              }}
-              className="px-3 py-1 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-800 text-slate-700 rounded-xl text-xs font-mono font-medium border border-slate-200 transition-colors cursor-pointer"
-            >
-              {sample.ref}
-            </button>
-          ))}
-        </div>
       </div>
 
       {errorMsg && (
@@ -433,6 +430,31 @@ export const TrackIssuePage: React.FC<Props> = ({ initialReference = '', onExplo
                   )}
                 </div>
               </div>
+            </div>
+
+            {/* AI Forensics & Severity Verification (ai-module) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>AI Forensics &amp; Severity Verification</span>
+                </span>
+                {aiLoading && (
+                  <span className="text-[11px] font-semibold text-indigo-600 flex items-center gap-1">
+                    <div className="w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                    <span>Analyzing Image...</span>
+                  </span>
+                )}
+              </div>
+
+              {aiVerification ? (
+                <AIVerifierCard verification={aiVerification} />
+              ) : aiLoading ? (
+                <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100 text-xs text-indigo-900 flex items-center gap-2.5">
+                  <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0" />
+                  <span>Evaluating image pixel grit, diffusion smoothness, and hazard score via Gemini Vision...</span>
+                </div>
+              ) : null}
             </div>
 
             {/* Official Resolution Summary (if resolved) */}

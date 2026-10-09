@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { api, setApiUserId } from '../lib/api';
+import { api, setApiUserId, clearApiSession } from '../lib/api';
 import { User } from '../types';
 
 interface AuthContextType {
@@ -23,28 +23,13 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  const loadUsersAndMe = async () => {
-    try {
-      const token = localStorage.getItem('civicpulse_token');
-      const [usersRes, meRes] = await Promise.all([
-        api.getUsers().catch(() => ({ users: [] })),
-        token ? api.getMe().catch(() => ({ user: null as any })) : Promise.resolve({ user: null as any }),
-      ]);
-
-      setUsers(usersRes.users || []);
-      setCurrentUser(meRes?.user || null);
-    } catch (err) {
-      console.error('Failed to load user session', err);
-      setCurrentUser(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Always reset session on initial load or browser refresh
   useEffect(() => {
-    loadUsersAndMe();
+    clearApiSession();
+    setCurrentUser(null);
+    api.getUsers().then((res) => setUsers(res.users || [])).catch(() => {});
   }, []);
 
   const login = async (email: string, password: string): Promise<User> => {
@@ -70,9 +55,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
-    api.logout();
-    localStorage.removeItem('civicpulse_user_id');
-    localStorage.removeItem('civicpulse_token');
+    clearApiSession();
     setCurrentUser(null);
   };
 

@@ -6,6 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 data/*.sqlite
 data/*.sqlite-wal
 data/*.sqlite-shm

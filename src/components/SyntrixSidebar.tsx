@@ -13,8 +13,10 @@ import {
   LogOut,
   ShieldAlert,
   Flame,
+  Trash2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { LiveActivityTicker } from './LiveActivityTicker';
 
 interface Props {
   currentTab: string;
@@ -31,32 +33,33 @@ export const SyntrixSidebar: React.FC<Props> = ({ currentTab, onNavigate }) => {
     navItems = [
       { id: 'district-dashboard', label: 'District', fullLabel: 'District Higher Authority (>14d Escalations)', icon: Landmark, badge: true },
       { id: 'municipality-dashboard', label: 'Muni Desk', fullLabel: 'Municipal Queue View', icon: Building },
+      { id: 'waste-management', label: 'Waste', fullLabel: 'Waste Collection Dispatch Desk', icon: Trash2 },
       { id: 'feed', label: 'Feed', fullLabel: 'Public Community Feed & Endorsements', icon: Flame },
       { id: 'map', label: 'Map', fullLabel: 'Civic Geographic Map', icon: MapPin },
       { id: 'transparency', label: 'Metrics', fullLabel: 'District Governance Scorecard', icon: BarChart2 },
-      { id: 'login', label: 'Switch', fullLabel: 'Switch Role / Login', icon: KeyRound },
     ];
   } else if (isMunicipalityAdmin) {
     navItems = [
       { id: 'municipality-dashboard', label: 'Muni Desk', fullLabel: 'Municipal Queue (Review, Acknowledge, Assign)', icon: Building, badge: true },
+      { id: 'waste-management', label: 'Waste', fullLabel: 'Waste Collection Dispatch Desk', icon: Trash2 },
       { id: 'feed', label: 'Feed', fullLabel: 'Public Community Feed & Endorsements', icon: Flame },
       { id: 'map', label: 'Map', fullLabel: 'Civic Geographic Map', icon: MapPin },
       { id: 'transparency', label: 'Metrics', fullLabel: 'SLA & Performance Metrics', icon: BarChart2 },
-      { id: 'login', label: 'Switch', fullLabel: 'Switch Role / Login', icon: KeyRound },
     ];
   } else if (isCitizen) {
     navItems = [
       { id: 'citizen-dashboard', label: 'My Reports', fullLabel: 'My Reports & Status Tracker', icon: User, badge: true },
       { id: 'feed', label: 'Feed', fullLabel: 'Public Community Feed & Endorsements', icon: Flame },
+      { id: 'waste-management', label: 'Waste', fullLabel: 'On-Demand Doorstep Waste Collection', icon: Trash2 },
       { id: 'report', label: 'Report', fullLabel: 'Create New Civic Report', icon: PlusCircle },
       { id: 'track', label: 'Track', fullLabel: 'Track Complaint Reference ID', icon: Search },
       { id: 'map', label: 'Map', fullLabel: 'Civic Geographic Map', icon: MapPin },
-      { id: 'login', label: 'Switch', fullLabel: 'Switch Role / Login', icon: KeyRound },
     ];
   } else {
     // Guest / Not logged in
     navItems = [
       { id: 'feed', label: 'Feed', fullLabel: 'Public Community Feed & Endorsements', icon: Flame, badge: true },
+      { id: 'waste-management', label: 'Waste', fullLabel: 'On-Demand Waste Pickup', icon: Trash2 },
       { id: 'map', label: 'Map', fullLabel: 'Civic Map', icon: MapPin },
       { id: 'track', label: 'Track', fullLabel: 'Track Complaint ID', icon: Search },
       { id: 'login', label: 'Login', fullLabel: 'Sign In to Portal', icon: KeyRound },
@@ -71,7 +74,7 @@ export const SyntrixSidebar: React.FC<Props> = ({ currentTab, onNavigate }) => {
   };
 
   return (
-    <aside className="w-16 sm:w-18 bg-[#f0f2f6] border-r border-slate-200/70 flex flex-col items-center py-5 select-none shrink-0 min-h-screen z-30 transition-all">
+    <aside className="w-20 bg-[#f0f2f6] border-r border-slate-200/70 flex flex-col items-center py-5 select-none shrink-0 min-h-screen z-30 transition-all">
       {/* Brand Icon */}
       <button
         onClick={handleLogoClick}
@@ -130,6 +133,9 @@ export const SyntrixSidebar: React.FC<Props> = ({ currentTab, onNavigate }) => {
           );
         })}
       </nav>
+
+      {/* Live Activity Ticker - above logout */}
+      {currentUser && <LiveActivityTicker />}
 
       {/* Bottom Logout Button */}
       {currentUser && (

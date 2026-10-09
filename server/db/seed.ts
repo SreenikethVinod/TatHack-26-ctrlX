@@ -508,6 +508,80 @@ export const INITIAL_COMPLAINTS_DATA = [
   },
 ];
 
+export function ensureSystemConfig(database: Database.Database = db) {
+  runMigrations(database);
+  const now = new Date().toISOString();
+
+  const deptCount = database.prepare('SELECT count(*) as count FROM departments').get() as { count: number };
+  if (deptCount.count === 0) {
+    const insertDept = database.prepare(`
+      INSERT OR IGNORE INTO departments (id, name, contact_email)
+      VALUES (?, ?, ?)
+    `);
+    for (const d of DEPARTMENTS_DATA) {
+      insertDept.run(d.id, d.name, d.email);
+    }
+  }
+
+  const slaCount = database.prepare('SELECT count(*) as count FROM sla_policies').get() as { count: number };
+  if (slaCount.count === 0) {
+    const insertSla = database.prepare(`
+      INSERT OR IGNORE INTO sla_policies (id, category, priority, ack_deadline_hours, action_deadline_hours, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const p of SLA_POLICIES_DATA) {
+      const id = `sla-${p.category}-${p.priority}`;
+      insertSla.run(id, p.category, p.priority, p.ack, p.action, now, now);
+    }
+  }
+}
+
+export function wipeDatabase(database: Database.Database = db) {
+  runMigrations(database);
+  const transaction = database.transaction(() => {
+    database.exec(`
+      DELETE FROM resolution_verifications;
+      DELETE FROM maintenance_plan_items;
+      DELETE FROM maintenance_plans;
+      DELETE FROM complaint_duplicate_links;
+      DELETE FROM escalations;
+      DELETE FROM attachments;
+      DELETE FROM official_notes;
+      DELETE FROM votes;
+      DELETE FROM complaint_history;
+      DELETE FROM complaint_followers;
+      DELETE FROM notifications;
+      DELETE FROM complaints;
+      DELETE FROM maintenance_issues;
+      DELETE FROM users;
+      DELETE FROM sla_policies;
+      DELETE FROM departments;
+    `);
+
+    // Only configure static municipal departments and SLA metrics
+    const insertDept = database.prepare(`
+      INSERT INTO departments (id, name, contact_email)
+      VALUES (?, ?, ?)
+    `);
+    for (const d of DEPARTMENTS_DATA) {
+      insertDept.run(d.id, d.name, d.email);
+    }
+
+    const insertSla = database.prepare(`
+      INSERT INTO sla_policies (id, category, priority, ack_deadline_hours, action_deadline_hours, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    const now = new Date().toISOString();
+    for (const p of SLA_POLICIES_DATA) {
+      const id = `sla-${p.category}-${p.priority}`;
+      insertSla.run(id, p.category, p.priority, p.ack, p.action, now, now);
+    }
+  });
+
+  transaction();
+  console.log('[Database] Database completely wiped. 0 complaints and 0 users.');
+}
+
 export function seedDatabase(database: Database.Database = db) {
   runMigrations(database);
 

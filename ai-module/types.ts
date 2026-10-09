@@ -32,7 +32,6 @@ export interface VerificationRequest {
   longitude?: number | null;
   imageUrl?: string;
   safetyRisk?: boolean;
-  photoMetadata?: any;
   photoDistanceMeters?: number | null;
   locationMatchStatus?: string;
 }

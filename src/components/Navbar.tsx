@@ -108,7 +108,7 @@ export const Navbar: React.FC<Props> = ({ currentTab, setCurrentTab, onOpenPitch
                     ? 'bg-indigo-950 border-indigo-700 text-indigo-200 hover:bg-indigo-900'
                     : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-750'
                 }`}
-                title="Switch Demo Role"
+                title="Switch Role"
               >
                 <div
                   className={`w-2 h-2 rounded-full ${
@@ -116,7 +116,7 @@ export const Navbar: React.FC<Props> = ({ currentTab, setCurrentTab, onOpenPitch
                   }`}
                 />
                 <span className="max-w-[100px] sm:max-w-[130px] truncate">
-                  {currentUser?.name || 'Demo User'}
+                  {currentUser?.name || 'User Account'}
                 </span>
                 <span
                   className={`hidden sm:inline-block text-[9px] px-1 rounded uppercase font-bold tracking-wider ${
@@ -134,7 +134,7 @@ export const Navbar: React.FC<Props> = ({ currentTab, setCurrentTab, onOpenPitch
                 <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl border border-slate-300 text-slate-900 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
                   <div className="px-3 py-1.5 border-b border-slate-100">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      Switch Demo Persona
+                      Switch Role Account
                     </span>
                   </div>
 

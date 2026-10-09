@@ -10,13 +10,8 @@ import {
   Lock,
   Mail,
   UserPlus,
-  LogIn,
   Check,
-  Shield,
   Clock,
-  IndianRupee,
-  AlertTriangle,
-  ThumbsUp,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -33,9 +28,9 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [activeRole, setActiveRole] = useState<RoleType>('citizen');
 
-  // Form states
-  const [email, setEmail] = useState('citizen@civicpulse.org');
-  const [password, setPassword] = useState('citizen123');
+  // Form states - starting empty for real user authentication
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [department, setDepartment] = useState('Public Works & Roads');
   const [loading, setLoading] = useState(false);
@@ -49,8 +44,6 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
       badge: 'Public Citizen',
       badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200',
       icon: User,
-      defaultEmail: 'citizen@civicpulse.org',
-      defaultPass: 'citizen123',
       description: 'Report civic issues in your neighborhood, track the status of your reports in real time, and see assigned workers and budgets.',
       features: [
         'Create new civic reports with photo and location',
@@ -65,8 +58,6 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
       badge: 'Municipal Authority',
       badgeColor: 'bg-indigo-50 text-indigo-700 border-indigo-200',
       icon: Building,
-      defaultEmail: 'municipality@civicpulse.org',
-      defaultPass: 'muni123',
       description: 'View incoming citizen reports, review & acknowledge them, and assign tasks to workers with repair budgets before the 14-day SLA expires.',
       features: [
         'Review incoming civic complaints across city wards',
@@ -81,8 +72,6 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
       badge: 'Higher Authority Oversight',
       badgeColor: 'bg-purple-50 text-purple-700 border-purple-200',
       icon: Landmark,
-      defaultEmail: 'district@civicpulse.org',
-      defaultPass: 'district123',
       description: 'Higher-authority oversight console for all reports remaining unacknowledged by municipal bodies for over 14 days, with executive intervention powers.',
       features: [
         'Dedicated queue for reports Unacknowledged > 14 Days',
@@ -95,53 +84,8 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
 
   const handleRoleSelect = (role: RoleType) => {
     setActiveRole(role);
-    setEmail(roleConfigs[role].defaultEmail);
-    setPassword(roleConfigs[role].defaultPass);
     setErrorMsg(null);
     setSuccessMsg(null);
-  };
-
-  const handleQuickLogin = async (role: RoleType) => {
-    setActiveRole(role);
-    const cfg = roleConfigs[role];
-    setEmail(cfg.defaultEmail);
-    setPassword(cfg.defaultPass);
-    setLoading(true);
-    setErrorMsg(null);
-    setSuccessMsg(null);
-
-    try {
-      await login(cfg.defaultEmail, cfg.defaultPass);
-      setSuccessMsg(`Welcome! Logged in as ${cfg.title}.`);
-      setTimeout(() => {
-        onLoginSuccess(role);
-      }, 500);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Quick login failed.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDirectLogin = async (targetEmail: string, targetPass: string, role: RoleType) => {
-    setActiveRole(role);
-    setEmail(targetEmail);
-    setPassword(targetPass);
-    setLoading(true);
-    setErrorMsg(null);
-    setSuccessMsg(null);
-
-    try {
-      const user = await login(targetEmail, targetPass);
-      setSuccessMsg(`Welcome! Logged in as ${user.name}.`);
-      setTimeout(() => {
-        onLoginSuccess(role);
-      }, 500);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Login failed.');
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -164,7 +108,12 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
         let targetRole: RoleType = activeRole;
         if ((user as any).systemRole === 'DISTRICT_REVIEWER' || user.email.toLowerCase().includes('district')) {
           targetRole = 'district';
-        } else if (user.role === 'official' || (user as any).systemRole === 'SUPERVISOR' || (user as any).systemRole === 'PANCHAYAT_OFFICER' || user.email.toLowerCase().includes('municipality')) {
+        } else if (
+          user.role === 'official' ||
+          (user as any).systemRole === 'SUPERVISOR' ||
+          (user as any).systemRole === 'PANCHAYAT_OFFICER' ||
+          user.email.toLowerCase().includes('municipality')
+        ) {
           targetRole = 'municipality';
         } else {
           targetRole = 'citizen';
@@ -220,7 +169,7 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
           Civic Portal Login
         </h1>
         <p className="text-xs sm:text-sm text-slate-500 max-w-lg mx-auto">
-          Sign in to access your role-specific console: Citizen, Municipality Admin, or District Higher Authority.
+          Sign in or register to access your role-specific console: Citizen, Municipality Admin, or District Higher Authority.
         </p>
       </div>
 
@@ -232,9 +181,11 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
           const isSelected = activeRole === role;
 
           return (
-            <div
+            <button
               key={role}
-              className={`p-4 rounded-2xl border transition-all relative flex flex-col justify-between ${
+              type="button"
+              onClick={() => handleRoleSelect(role)}
+              className={`p-4 rounded-2xl border text-left transition-all relative flex flex-col justify-between cursor-pointer ${
                 isSelected
                   ? 'bg-white border-indigo-600 ring-2 ring-indigo-600/10 shadow-xs'
                   : 'bg-white/70 border-slate-200 hover:bg-white hover:border-slate-300'
@@ -249,63 +200,29 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
                   >
                     <TabIcon className="w-5 h-5" />
                   </div>
-                  {isSelected && (
+                  {isSelected ? (
                     <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs">
                       <Check className="w-3 h-3 stroke-[3]" />
                     </span>
+                  ) : (
+                    <span className="text-[10px] text-slate-400 font-medium">Select</span>
                   )}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleRoleSelect(role)}
-                  className="text-left w-full cursor-pointer"
-                >
+                <div>
                   <div className="text-sm font-bold text-slate-900">{cfg.title}</div>
                   <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-2 leading-relaxed">
                     {cfg.description}
                   </div>
-                </button>
+                </div>
               </div>
 
-              {/* 1-Click Quick Login Buttons */}
-              {role === 'citizen' ? (
-                <div className="mt-4 space-y-1.5 w-full">
-                  <button
-                    type="button"
-                    onClick={() => handleDirectLogin('citizen@civicpulse.org', 'citizen123', 'citizen')}
-                    disabled={loading}
-                    className="w-full py-1.5 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
-                  >
-                    <LogIn className="w-3.5 h-3.5" />
-                    <span>Citizen 1 (Alex Morgan)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDirectLogin('citizen2@civicpulse.org', 'citizen123', 'citizen')}
-                    disabled={loading}
-                    className="w-full py-1.5 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
-                  >
-                    <ThumbsUp className="w-3.5 h-3.5 text-amber-300" />
-                    <span>Citizen 2 (Maya Lin - Endorse)</span>
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin(role)}
-                  disabled={loading}
-                  className={`mt-4 w-full py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
-                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  }`}
-                >
-                  <LogIn className="w-3.5 h-3.5" />
-                  <span>1-Click Log In as {cfg.title.split(' ')[0]}</span>
-                </button>
-              )}
-            </div>
+              <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                <span className={`font-semibold ${isSelected ? 'text-indigo-600' : 'text-slate-400'}`}>
+                  {isSelected ? 'Active Selection' : 'Click to Select'}
+                </span>
+              </div>
+            </button>
           );
         })}
       </div>
@@ -344,56 +261,6 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {activeRole === 'citizen' && mode === 'login' && (
-              <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl space-y-2">
-                <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
-                  <span>Select Citizen Persona:</span>
-                  <span className="text-[10px] text-indigo-600 font-bold">2 Citizen Accounts for Endorsement Testing</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEmail('citizen@civicpulse.org');
-                      setPassword('citizen123');
-                    }}
-                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                      email === 'citizen@civicpulse.org'
-                        ? 'bg-white border-emerald-600 ring-2 ring-emerald-500/20 shadow-xs'
-                        : 'bg-white/60 border-slate-200 hover:bg-white text-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs font-bold text-slate-900">Citizen 1 (Alex Morgan)</div>
-                      {email === 'citizen@civicpulse.org' && <Check className="w-3.5 h-3.5 text-emerald-600" />}
-                    </div>
-                    <div className="text-[10px] text-slate-500 font-mono">citizen@civicpulse.org</div>
-                    <div className="text-[9px] text-emerald-700 font-semibold mt-1">Submit Initial Reports</div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEmail('citizen2@civicpulse.org');
-                      setPassword('citizen123');
-                    }}
-                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                      email === 'citizen2@civicpulse.org'
-                        ? 'bg-white border-indigo-600 ring-2 ring-indigo-500/20 shadow-xs'
-                        : 'bg-white/60 border-slate-200 hover:bg-white text-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs font-bold text-slate-900">Citizen 2 (Maya Lin)</div>
-                      {email === 'citizen2@civicpulse.org' && <Check className="w-3.5 h-3.5 text-indigo-600" />}
-                    </div>
-                    <div className="text-[10px] text-slate-500 font-mono">citizen2@civicpulse.org</div>
-                    <div className="text-[9px] text-indigo-700 font-bold mt-1">Endorse &amp; Corroborate Issues</div>
-                  </button>
-                </div>
-              </div>
-            )}
-
             {mode === 'register' && (
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
@@ -417,9 +284,6 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
                   <Mail className="w-3.5 h-3.5 text-slate-400" />
                   <span>Email Address</span>
                 </span>
-                <span className="text-[10px] text-slate-400 font-mono">
-                  Default: {currentCfg.defaultEmail}
-                </span>
               </label>
               <input
                 type="email"
@@ -427,7 +291,7 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white"
-                placeholder={currentCfg.defaultEmail}
+                placeholder="name@example.com"
               />
             </div>
 
@@ -436,9 +300,6 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess, onCancel }) => {
                 <span className="flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5 text-slate-400" />
                   <span>Password</span>
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono">
-                  Default: {currentCfg.defaultPass}
                 </span>
               </label>
               <input

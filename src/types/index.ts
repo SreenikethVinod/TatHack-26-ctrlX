@@ -179,3 +179,65 @@ export interface AnalyticsData {
   topAreas: AreaMetric[];
   departmentPerformance: DepartmentMetric[];
 }
+
+export type WasteType =
+  | 'bulk_furniture'
+  | 'construction_debris'
+  | 'electronic_waste'
+  | 'garden_green'
+  | 'hazardous_chemical'
+  | 'recyclable_scrap'
+  | 'general_bulk';
+
+export type WastePickupStatus =
+  | 'Requested'
+  | 'Scheduled'
+  | 'Dispatched'
+  | 'Completed'
+  | 'Cancelled';
+
+export interface WastePickup {
+  id: string;
+  reference: string;
+  userId: string;
+  userName: string;
+  userPhone: string;
+  userEmail?: string | null;
+  wasteType: WasteType;
+  estimatedWeight?: string | null;
+  pickupDate: string;
+  timeSlot: string;
+  address: string;
+  locality: string;
+  pincode?: string | null;
+  specialInstructions?: string | null;
+  imageUrl?: string | null;
+  status: WastePickupStatus;
+  assignedCrew?: string | null;
+  assignedVehicle?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+}
+
+export interface WasteStats {
+  totalBookings: number;
+  completed: number;
+  dispatched: number;
+  pending: number;
+  ecoDivertedKg: number;
+}
+
+export interface AIVerificationResult {
+  isAuthentic: boolean;
+  authenticityScore: number;
+  aiGeneratedProbability: number;
+  visualSeverity: PriorityLevel;
+  severityScore: number;
+  severityRationale: string[];
+  fraudFlag: boolean;
+  fraudReason?: string;
+  verdict: 'VERIFIED_REAL' | 'SUSPICIOUS_AI' | 'IRRELEVANT' | 'NEEDS_INSPECTION';
+  analyzedAt: string;
+}

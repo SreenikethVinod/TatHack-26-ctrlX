@@ -333,16 +333,6 @@ export const SyntrixTopBar: React.FC<Props> = ({ onNavigate }) => {
                     </button>
                   )}
 
-                  <button
-                    onClick={() => {
-                      setUserDropdownOpen(false);
-                      onNavigate('login');
-                    }}
-                    className="w-full text-left p-2 rounded-xl hover:bg-slate-50 text-indigo-600 font-medium cursor-pointer"
-                  >
-                    Switch Account Role
-                  </button>
-
                   <div className="pt-1 border-t border-slate-100">
                     <button
                       onClick={() => {

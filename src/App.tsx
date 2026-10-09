@@ -12,16 +12,18 @@ import { ExploreIssuesPage } from './pages/ExploreIssuesPage';
 import { PublicFeedPage } from './pages/PublicFeedPage';
 import { CivicMapPage } from './pages/CivicMapPage';
 import { TransparencyPage } from './pages/TransparencyPage';
+import { WasteManagementPage } from './pages/WasteManagementPage';
 import { LoginPage } from './pages/LoginPage';
+import { AIChatBubble } from './components/AIChatBubble';
 import { api } from './lib/api';
 import { AnalyticsData, Complaint } from './types';
 
 function MainApp() {
   const { currentUser, isDistrictAdmin, isMunicipalityAdmin, isCitizen, loading: authLoading } = useAuth();
 
-  // Tab state
+  // Tab state - always starts at login
   const [currentTab, setCurrentTab] = useState<string>('login');
-  const [trackReference, setTrackReference] = useState<string>('CP-2026-001');
+  const [trackReference, setTrackReference] = useState<string>('');
 
   // Live data for analytics and maps
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
@@ -41,25 +43,17 @@ function MainApp() {
   };
 
   useEffect(() => {
-    loadData();
+    if (currentUser) {
+      loadData();
+    }
   }, [currentUser]);
 
-  // When user signs in or changes, automatically route to their dedicated role screen
+  // When not signed in, always go to login screen
   useEffect(() => {
-    if (!authLoading) {
-      if (!currentUser) {
-        setCurrentTab('login');
-      } else if (currentTab === 'login') {
-        if (isDistrictAdmin) {
-          setCurrentTab('district-dashboard');
-        } else if (isMunicipalityAdmin) {
-          setCurrentTab('municipality-dashboard');
-        } else {
-          setCurrentTab('citizen-dashboard');
-        }
-      }
+    if (!currentUser) {
+      setCurrentTab('login');
     }
-  }, [currentUser, authLoading, isDistrictAdmin, isMunicipalityAdmin]);
+  }, [currentUser]);
 
   const handleNavigate = (tab: string, reference?: string) => {
     if (reference) {
@@ -147,6 +141,11 @@ function MainApp() {
             <DistrictDashboardPage />
           )}
 
+          {/* On-Demand Waste Management Tab */}
+          {currentTab === 'waste-management' && (
+            <WasteManagementPage onNavigateTab={(tab) => handleNavigate(tab)} />
+          )}
+
           {/* Citizen Report Form Direct Tab */}
           {currentTab === 'report' && (
             <ReportIssuePage
@@ -209,6 +208,9 @@ function MainApp() {
           </div>
         </footer>
       </div>
+
+      {/* Floating AI Chat Bubble — visible on all screens */}
+      <AIChatBubble />
     </div>
   );
 }

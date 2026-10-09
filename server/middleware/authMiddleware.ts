@@ -10,7 +10,7 @@ declare global {
   }
 }
 
-export function resolveUserFromRequest(req: Request): User {
+export function resolveUserFromRequest(req: Request): User | null {
   // 1. Check Bearer Token
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -22,36 +22,30 @@ export function resolveUserFromRequest(req: Request): User {
     }
   }
 
-  // 2. Check Demo User ID header (validated against real SQL database)
+  // 2. Check User ID header (validated against real SQL database)
   const demoUserId = req.headers['x-demo-user-id'] as string;
   if (demoUserId) {
     const user = db.getUserById(demoUserId);
     if (user) return user;
   }
 
-  // 3. Fallback to Citizen Aisha Chen
-  const fallback = db.getUserById('user-citizen-1');
-  if (fallback) return fallback;
-
-  return {
-    id: 'user-citizen-1',
-    name: 'Aisha Chen',
-    email: 'aisha.chen@citizen.demo',
-    role: 'citizen',
-    systemRole: 'CITIZEN',
-    createdAt: new Date().toISOString(),
-    permissions: ['complaints:create', 'complaints:read_public', 'complaints:vote'],
-  };
+  return null;
 }
 
 export function authMiddleware(req: Request, _res: Response, next: NextFunction) {
-  req.user = resolveUserFromRequest(req);
+  req.user = resolveUserFromRequest(req) || undefined;
   next();
 }
 
 export function requireRole(...allowedRoles: (SystemRole | 'official' | 'citizen' | 'admin')[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     const user = req.user || resolveUserFromRequest(req);
+    if (!user) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authentication required. Please sign in to perform this action.',
+      });
+    }
     req.user = user;
 
     const userSystemRole = user.systemRole as SystemRole;

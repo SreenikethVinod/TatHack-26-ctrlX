@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { AnalyticsData } from '../types';
+import { useAnimatedCounter } from '../lib/useAnimatedCounter';
 
 export const TransparencyPage: React.FC = () => {
   const [data, setData] = useState<AnalyticsData | null>(null);
@@ -30,6 +31,12 @@ export const TransparencyPage: React.FC = () => {
     }
     loadAnalytics();
   }, []);
+
+  // Animated counters (must be called unconditionally before early return)
+  const animatedTotal = useAnimatedCounter(data?.summary?.total ?? 0);
+  const animatedResolved = useAnimatedCounter(data?.summary?.resolved ?? 0);
+  const animatedInProgress = useAnimatedCounter(data?.summary?.inProgress ?? 0);
+  const animatedAvgHours = useAnimatedCounter(data?.summary?.avgResolutionHours ?? 0);
 
   if (loading || !data) {
     return (
@@ -58,55 +65,55 @@ export const TransparencyPage: React.FC = () => {
         </p>
       </div>
 
-      {/* Demo Data Disclaimer Banner */}
+      {/* Live Governance Benchmark Notice */}
       <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-2xl flex items-center gap-3 text-xs text-blue-900">
         <Info className="w-4 h-4 text-blue-600 shrink-0" />
         <span>
-          <strong>Open Governance Notice:</strong> All figures shown below are aggregated in real time from our demo database of 16+ verified complaints. No simulated live government figures are claimed.
+          <strong>Live Municipal Ledger:</strong> All metrics, resolution rates, and SLA benchmarks are computed in real time from verified database records.
         </span>
       </div>
 
       {/* KPI Overview Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="syntrix-card p-5 bg-white">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 stagger-children">
+        <div className="syntrix-card p-5 bg-white stat-card-hover animate-fade-slide-in">
           <div className="flex items-center justify-between text-slate-400 mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider">Total Reports</span>
             <BarChart3 className="w-4 h-4 text-slate-500" />
           </div>
-          <div className="text-3xl font-extrabold text-slate-900">{summary.total}</div>
+          <div className="text-3xl font-extrabold text-slate-900 animate-count-up">{animatedTotal}</div>
           <div className="text-[11px] text-slate-500 mt-1">
             {summary.submitted} newly submitted
           </div>
         </div>
 
-        <div className="syntrix-card p-5 bg-white">
+        <div className="syntrix-card p-5 bg-white stat-card-hover animate-fade-slide-in">
           <div className="flex items-center justify-between text-slate-400 mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider">Verified Resolved</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
           </div>
-          <div className="text-3xl font-extrabold text-emerald-600">{summary.resolved}</div>
+          <div className="text-3xl font-extrabold text-emerald-600 animate-count-up">{animatedResolved}</div>
           <div className="text-[11px] text-emerald-700 font-semibold mt-1">
             {summary.resolutionRate}% closure rate
           </div>
         </div>
 
-        <div className="syntrix-card p-5 bg-white">
+        <div className="syntrix-card p-5 bg-white stat-card-hover animate-fade-slide-in">
           <div className="flex items-center justify-between text-slate-400 mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider">In Active Repairs</span>
             <Clock className="w-4 h-4 text-amber-500" />
           </div>
-          <div className="text-3xl font-extrabold text-amber-600">{summary.inProgress}</div>
+          <div className="text-3xl font-extrabold text-amber-600 animate-count-up">{animatedInProgress}</div>
           <div className="text-[11px] text-slate-500 mt-1">
             {summary.acknowledged} acknowledged
           </div>
         </div>
 
-        <div className="syntrix-card p-5 bg-white">
+        <div className="syntrix-card p-5 bg-white stat-card-hover animate-fade-slide-in">
           <div className="flex items-center justify-between text-slate-400 mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider">Avg Turnaround</span>
             <TrendingUp className="w-4 h-4 text-indigo-600" />
           </div>
-          <div className="text-3xl font-extrabold text-indigo-600">{summary.avgResolutionHours}h</div>
+          <div className="text-3xl font-extrabold text-indigo-600 animate-count-up">{animatedAvgHours}h</div>
           <div className="text-[11px] text-slate-500 mt-1">
             Across verified closures
           </div>

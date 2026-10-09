@@ -27,11 +27,12 @@ import {
   Layers,
 } from 'lucide-react';
 import { api } from '../lib/api';
-import { Complaint, ComplaintHistoryEntry, OfficialNote } from '../types';
+import { Complaint, ComplaintHistoryEntry, OfficialNote, AIVerificationResult } from '../types';
 import { StatusBadge } from '../components/StatusBadge';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { PhotoVerificationBadge } from '../components/PhotoVerificationBadge';
 import { BudgetCostBreakdown } from '../components/BudgetCostBreakdown';
+import { AIVerifierCard } from '../../ai-module/AIVerifierCard.tsx';
 import { useAuth } from '../context/AuthContext';
 
 export const MunicipalityDashboardPage: React.FC = () => {
@@ -48,6 +49,7 @@ export const MunicipalityDashboardPage: React.FC = () => {
   const [history, setHistory] = useState<ComplaintHistoryEntry[]>([]);
   const [notes, setNotes] = useState<OfficialNote[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [reviewAiVerification, setReviewAiVerification] = useState<AIVerificationResult | null>(null);
 
   // Acknowledge modal/action
   const [ackModalOpen, setAckModalOpen] = useState(false);
@@ -99,6 +101,19 @@ export const MunicipalityDashboardPage: React.FC = () => {
       setSelectedComplaint(res.complaint);
       setHistory(res.history || []);
       setNotes(res.notes || []);
+
+      // Run AI Forensics for official inspection
+      api.verifyWithAI({
+        title: res.complaint.title,
+        description: res.complaint.description,
+        category: res.complaint.category,
+        imageUrl: res.complaint.imageUrl,
+        safetyRisk: res.complaint.safetyRisk,
+      })
+        .then((aiRes) => {
+          if (aiRes?.verification) setReviewAiVerification(aiRes.verification);
+        })
+        .catch(() => {});
     } catch (err) {
       console.error('Failed to load details', err);
     } finally {
@@ -752,6 +767,12 @@ export const MunicipalityDashboardPage: React.FC = () => {
                         compact
                       />
                     )}
+                    {c.imageUrl && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-indigo-600" />
+                        <span>AI Forensics Verified</span>
+                      </span>
+                    )}
                     <span className="text-xs text-slate-500">
                       Reported by <strong>{c.reporterName}</strong> on {new Date(c.createdAt).toLocaleDateString()}
                     </span>
@@ -929,6 +950,17 @@ export const MunicipalityDashboardPage: React.FC = () => {
               Formally acknowledging this report confirms that the municipal department has received and reviewed the issue. This immediately stops the 14-day statutory countdown and prevents automatic escalation to District Admin.
             </p>
 
+            {/* AI Forensics & Authenticity Card */}
+            {reviewAiVerification && (
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-indigo-600" />
+                  <span>AI Forensics &amp; Severity Assessment</span>
+                </span>
+                <AIVerifierCard verification={reviewAiVerification} compact />
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-700">Official Acknowledgement Note</label>
               <textarea
@@ -989,9 +1021,14 @@ export const MunicipalityDashboardPage: React.FC = () => {
               </button>
             </div>
 
-            <div className="p-3 bg-slate-50 rounded-xl text-xs text-slate-600 border border-slate-200">
-              <strong className="text-slate-800">{selectedComplaint.title}</strong>
-              <div className="text-slate-400 mt-0.5">{selectedComplaint.address}</div>
+            <div className="p-3 bg-slate-50 rounded-xl text-xs text-slate-600 border border-slate-200 space-y-2">
+              <div>
+                <strong className="text-slate-800">{selectedComplaint.title}</strong>
+                <div className="text-slate-400 mt-0.5">{selectedComplaint.address}</div>
+              </div>
+              {reviewAiVerification && (
+                <AIVerifierCard verification={reviewAiVerification} compact />
+              )}
             </div>
 
             <div className="space-y-4">

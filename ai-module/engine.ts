@@ -42,13 +42,8 @@ export async function verifyAndTriageImage(request: VerificationRequest): Promis
     title = '',
     description = '',
     category = 'road_damage',
-    address = '',
-    locality = '',
     imageUrl = '',
     safetyRisk = false,
-    photoMetadata = null,
-    photoDistanceMeters = null,
-    locationMatchStatus = 'NO_PHOTO',
   } = request;
 
   const now = new Date().toISOString();
@@ -68,8 +63,6 @@ Context:
 - Category: "${category}"
 - Title: "${title}"
 - Description: "${description}"
-- Location: "${address}${locality ? `, ${locality}` : ''}"
-- Photo Location Verification: ${locationMatchStatus}${photoDistanceMeters !== null ? ` (${Math.round(photoDistanceMeters)}m from reported scene)` : ''}
 - Reporter Safety Risk Flag: ${safetyRisk ? 'YES' : 'NO'}
 
 Tasks:
@@ -176,13 +169,8 @@ Tasks:
     title,
     description,
     category,
-    address,
-    locality,
     safetyRisk,
     imageUrl,
-    photoMetadata,
-    photoDistanceMeters,
-    locationMatchStatus,
     now,
   });
 }
@@ -191,30 +179,12 @@ function runHeuristicEvaluation(params: {
   title: string;
   description: string;
   category: string;
-  address?: string;
-  locality?: string;
   safetyRisk: boolean;
   imageUrl: string;
-  photoMetadata?: any;
-  photoDistanceMeters?: number | null;
-  locationMatchStatus?: string;
   now: string;
 }): AIVerificationResult {
-  const {
-    title,
-    description,
-    category,
-    address = '',
-    locality = '',
-    safetyRisk,
-    imageUrl,
-    photoMetadata,
-    photoDistanceMeters,
-    locationMatchStatus = 'NO_PHOTO',
-    now,
-  } = params;
+  const { title, description, category, safetyRisk, imageUrl, now } = params;
   const text = `${title} ${description}`.toLowerCase();
-  const locText = `${address} ${locality} ${text}`.toLowerCase();
 
   // Synthetic vs Real photo detection cues
   const isSyntheticIndicator =
@@ -239,41 +209,12 @@ function runHeuristicEvaluation(params: {
     fraudReason = 'No photographic evidence provided.';
   }
 
-  // Precise Semantic Analysis of Description
-  const criticalKeywords = [
-    'exposed wire', 'live wire', 'electric shock', 'sparking',
-    'burst pipe', 'burst main', 'ruptured main', 'pipeline rupture',
-    'sinkhole', 'crater', 'road collapse', 'cave in', 'cave-in',
-    'bridge fracture', 'structural collapse', 'toxic',
-    'open manhole', 'uncovered manhole', 'drain without lid', 'missing lid',
-    'gas leak', 'landslide', 'impassable', 'ambulance blocked',
-  ];
-  const highKeywords = [
-    'deep pothole', 'severe pothole', 'tire blowout', 'axle damage',
-    'flooded road', 'submerged', 'overflowing sewage', 'blackout',
-    'broken guardrail', 'dangling pole', 'fallen tree', 'road blocked',
-    'traffic jam', 'blind spot', 'severe leakage', 'water gushing',
-    'water leak', 'pipe leak', 'pipeline leak', 'major leak', 'leakage',
-  ];
-  const hazardIntensityKeywords = [
-    'dangerous', 'hazardous', 'hazard', 'severe', 'life risk', 'accident prone', 'unsafe',
-  ];
-  const vulnerabilityKeywords = [
-    'school', 'kindergarten', 'daycare', 'playground', 'children', 'students', 'elderly', 'pedestrian',
-  ];
-  const mitigatingKeywords = [
-    'minor crack', 'hairline crack', 'small pothole', 'cosmetic',
-    'slight peeling', 'flickering bulb', 'slow drip', 'mild smell',
-    'dry leaves', 'routine maintenance', 'non urgent', 'superficial',
-  ];
+  // Severity calculation
+  const criticalKeywords = ['exposed wire', 'burst pipe', 'major flood', 'collapse', 'deep sinkhole', 'electric shock', 'hazard', 'severe'];
+  const highKeywords = ['pothole', 'overflow', 'choked', 'traffic jam', 'accident', 'danger', 'broken glass', 'darkness', 'blocked'];
 
-  const isNegated = (kw: string) => text.includes(`not ${kw}`) || text.includes(`non ${kw}`) || text.includes(`non-${kw}`);
-
-  const matchedCritical = criticalKeywords.filter((kw) => text.includes(kw));
-  const matchedHigh = highKeywords.filter((kw) => text.includes(kw));
-  const matchedHazard = hazardIntensityKeywords.filter((kw) => text.includes(kw) && !isNegated(kw));
-  const matchedVuln = vulnerabilityKeywords.filter((kw) => text.includes(kw));
-  const matchedMitigating = mitigatingKeywords.filter((kw) => text.includes(kw));
+  const hasCritical = criticalKeywords.some((kw) => text.includes(kw));
+  const hasHigh = highKeywords.some((kw) => text.includes(kw));
 
   let severityScore = 30;
   const severityRationale: string[] = [];
@@ -306,65 +247,22 @@ function runHeuristicEvaluation(params: {
   }
 
   if (safetyRisk) {
-    severityScore += 20;
+    severityScore += 25;
     severityRationale.push('Reporter signaled immediate safety risk to the public.');
   }
 
-  if (matchedCritical.length > 0) {
-    severityScore += 25;
-    severityRationale.push(`Description Semantics: Acute critical hazard detected (${matchedCritical.slice(0, 2).map((k) => `"${k}"`).join(', ')}).`);
-  } else if (matchedHigh.length > 0) {
-    severityScore += 15;
-    severityRationale.push(`Description Semantics: Elevated urgency markers detected (${matchedHigh.slice(0, 2).map((k) => `"${k}"`).join(', ')}).`);
-  }
-
-  if (matchedHazard.length > 0) {
-    severityScore += 12;
-    severityRationale.push(`Description Semantics: Hazard intensity flagged (${matchedHazard.slice(0, 2).map((k) => `"${k}"`).join(', ')}).`);
-  }
-
-  if (matchedVuln.length > 0) {
+  if (hasCritical) {
+    severityScore += 20;
+    severityRationale.push('Lexical analysis identified critical hazard indicators.');
+  } else if (hasHigh) {
     severityScore += 10;
-    severityRationale.push(`Description Semantics: Sensitive pedestrian or child zone flagged (${matchedVuln.slice(0, 2).map((k) => `"${k}"`).join(', ')}).`);
+    severityRationale.push('Lexical analysis identified elevated urgency markers.');
   }
 
-  if (matchedMitigating.length > 0 && matchedCritical.length === 0 && matchedHigh.length === 0 && matchedHazard.length === 0) {
-    severityScore -= 18;
-    severityRationale.push(`Description Semantics: Minor/cosmetic condition noted (${matchedMitigating[0]}).`);
-  }
-
-  // Location from Photo Metadata Precision
-  let distMeters: number | null = typeof photoDistanceMeters === 'number' ? photoDistanceMeters : null;
-  if (distMeters === null && photoMetadata && typeof photoMetadata.distanceMeters === 'number') {
-    distMeters = photoMetadata.distanceMeters;
-  }
-
-  const isVerifiedPhoto = locationMatchStatus === 'VERIFIED' || (distMeters !== null && distMeters <= 300);
-  const isFlaggedMismatch = locationMatchStatus === 'FLAGGED_MISMATCH' || (distMeters !== null && distMeters > 300);
-
-  if (isVerifiedPhoto) {
-    severityRationale.push(`Location Verified: Camera capture cryptographically validated on-site (${Math.round(distMeters || 15)}m from pin).`);
-  } else if (isFlaggedMismatch) {
-    severityRationale.push(`Location Discrepancy: Photo taken ${Math.round(distMeters || 500)}m away from incident site (flagged for review).`);
-    severityScore = Math.min(65, severityScore);
-  }
-
-  // Sensitive Zone Context
-  if (locText.includes('hospital') || locText.includes('ambulance') || locText.includes('clinic')) {
-    severityScore += 12;
-    severityRationale.push('Location Sensitivity: Hospital / emergency healthcare corridor detected.');
-  } else if (locText.includes('school') || locText.includes('college') || locText.includes('kindergarten')) {
-    severityScore += 10;
-    severityRationale.push('Location Sensitivity: School / child safety zone detected.');
-  } else if (locText.includes('highway') || locText.includes('flyover') || locText.includes('expressway')) {
-    severityScore += 8;
-    severityRationale.push('Location Sensitivity: High-speed highway or transit artery.');
-  }
-
-  severityScore = Math.min(100, Math.max(10, severityScore));
+  severityScore = Math.min(100, severityScore);
 
   let visualSeverity: PriorityLevel = 'Medium';
-  if (severityScore >= 75 || (safetyRisk && (category === 'public_safety' || category === 'road_damage')) || matchedCritical.length > 0) {
+  if (severityScore >= 75 || (safetyRisk && (category === 'public_safety' || category === 'road_damage'))) {
     visualSeverity = 'Critical';
   } else if (severityScore >= 50) {
     visualSeverity = 'High';

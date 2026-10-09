@@ -238,25 +238,11 @@ export const OfficialDashboardPage: React.FC = () => {
 
         <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs space-y-3">
           <p className="font-semibold text-slate-800">
-            Current Persona: <span className="text-teal-700">{currentUser?.name} (Citizen)</span>
+            Current Account: <span className="text-teal-700">{currentUser?.name || 'Citizen'}</span>
           </p>
           <p className="text-slate-500">
-            To evaluate municipal triage capabilities, switch to a municipal officer demo account:
+            To evaluate municipal triage capabilities, please sign in with an authorized Municipal Officer or Administrator account.
           </p>
-          <div className="flex flex-col sm:flex-row gap-2 justify-center pt-1">
-            <button
-              onClick={() => switchUser('user-official-1')}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-xs transition-colors cursor-pointer"
-            >
-              Director Marcus Vance (Public Works)
-            </button>
-            <button
-              onClick={() => switchUser('user-official-2')}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-xl text-xs transition-colors cursor-pointer"
-            >
-              Inspector Sarah Jenkins (Sanitation)
-            </button>
-          </div>
         </div>
       </div>
     );

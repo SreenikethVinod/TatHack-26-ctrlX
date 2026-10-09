@@ -6,19 +6,20 @@ import {
   OfficialNote,
   PriorityLevel,
   User,
+  WastePickup,
+  WasteStats,
+  AIVerificationResult,
 } from '../types';
 
-let currentUserId = localStorage.getItem('civicpulse_user_id') || 'user-citizen-1';
-let currentToken = localStorage.getItem('civicpulse_token') || '';
+let currentUserId = '';
+let currentToken = '';
 
 export function setApiUserId(userId: string) {
   currentUserId = userId;
-  localStorage.setItem('civicpulse_user_id', userId);
 }
 
 export function setApiToken(token: string) {
   currentToken = token;
-  localStorage.setItem('civicpulse_token', token);
 }
 
 export function getApiToken(): string {
@@ -29,10 +30,23 @@ export function getApiUserId(): string {
   return currentUserId;
 }
 
+export function clearApiSession() {
+  currentUserId = '';
+  currentToken = '';
+  try {
+    localStorage.removeItem('civicpulse_user_id');
+    localStorage.removeItem('civicpulse_token');
+    sessionStorage.clear();
+  } catch {}
+}
+
+// Ensure session is cleared on fresh load/entry
+clearApiSession();
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'x-demo-user-id': currentUserId,
+    ...(currentUserId ? { 'x-demo-user-id': currentUserId } : {}),
     ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
     ...(options.headers as Record<string, string> || {}),
   };
@@ -337,5 +351,78 @@ export const api = {
     source: string;
   }> {
     return request(`/geocode/reverse?lat=${lat}&lng=${lng}`);
+  },
+
+  // On-demand waste collection
+  async getWasteStats(): Promise<{ success: boolean; stats: WasteStats }> {
+    return request('/waste-pickups/stats');
+  },
+
+  async getWastePickups(params?: { status?: string; search?: string }): Promise<{
+    success: boolean;
+    pickups: WastePickup[];
+    count: number;
+  }> {
+    const query = new URLSearchParams();
+    if (params?.status && params.status !== 'all') query.append('status', params.status);
+    if (params?.search) query.append('search', params.search);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return request(`/waste-pickups${qs}`);
+  },
+
+  async getWastePickup(id: string): Promise<{ success: boolean; pickup: WastePickup }> {
+    return request(`/waste-pickups/${id}`);
+  },
+
+  async bookWastePickup(data: {
+    wasteType: string;
+    estimatedWeight?: string;
+    pickupDate: string;
+    timeSlot: string;
+    address: string;
+    locality: string;
+    pincode?: string;
+    specialInstructions?: string;
+    imageUrl?: string;
+    contactPhone?: string;
+  }): Promise<{ success: boolean; pickup: WastePickup; message: string }> {
+    return request('/waste-pickups', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateWastePickupStatus(
+    id: string,
+    payload: {
+      status: string;
+      assignedCrew?: string;
+      assignedVehicle?: string;
+      notes?: string;
+    }
+  ): Promise<{ success: boolean; pickup: WastePickup }> {
+    return request(`/waste-pickups/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async cancelWastePickup(id: string): Promise<{ success: boolean; message: string }> {
+    return request(`/waste-pickups/${id}/cancel`, {
+      method: 'POST',
+    });
+  },
+
+  async verifyWithAI(payload: {
+    title?: string;
+    description?: string;
+    category?: string;
+    imageUrl?: string;
+    safetyRisk?: boolean;
+  }): Promise<{ success: boolean; verification: AIVerificationResult }> {
+    return request('/ai/verify', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 };

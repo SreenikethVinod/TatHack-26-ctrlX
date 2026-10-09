@@ -10,6 +10,7 @@ import { planningService } from './services/planningService.ts';
 import { evidenceService } from './services/evidenceService.ts';
 import { analyticsService } from './services/analyticsService.ts';
 import { notificationService } from './services/notificationService.ts';
+import { wastePickupService } from './services/wastePickupService.ts';
 import { authMiddleware, requireRole, resolveUserFromRequest } from './middleware/authMiddleware.ts';
 import { aiRouter } from '../ai-module/index.ts';
 
@@ -20,6 +21,14 @@ apiRouter.use('/ai', aiRouter);
 
 // Apply auth middleware to resolve request user
 apiRouter.use(authMiddleware);
+
+function getAuthenticatedUser(req: Request): User {
+  const user = req.user || resolveUserFromRequest(req);
+  if (!user) {
+    throw new Error('Authentication required. Please sign in to proceed.');
+  }
+  return user;
+}
 
 // ==========================================
 // 1. HEALTH & CORE STATUS
@@ -54,11 +63,19 @@ apiRouter.post('/auth/register', (req: Request, res: Response) => {
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Name, email, and password are required.' });
     }
+    let systemRole: SystemRole = 'CITIZEN';
+    if (role) {
+      const upper = String(role).toUpperCase();
+      if (upper === 'CITIZEN') systemRole = 'CITIZEN';
+      else if (upper === 'OFFICIAL' || upper === 'MUNICIPALITY' || upper === 'SUPERVISOR') systemRole = 'SUPERVISOR';
+      else if (upper === 'ADMIN' || upper === 'DISTRICT') systemRole = 'ADMIN';
+    }
+
     const result = authService.register({
       name,
       email,
       password,
-      role: role as SystemRole,
+      role: systemRole,
       department,
       locality,
       avatarUrl,
@@ -101,8 +118,8 @@ apiRouter.get('/complaints', (req: Request, res: Response) => {
     const activeUser = req.user || resolveUserFromRequest(req);
     const enriched = complaints.map((c) => ({
       ...c,
-      hasUserVoted: db.hasUserVoted(c.id, activeUser.id),
-      isFollowing: db.isUserFollowing(c.id, activeUser.id),
+      hasUserVoted: activeUser ? db.hasUserVoted(c.id, activeUser.id) : false,
+      isFollowing: activeUser ? db.isUserFollowing(c.id, activeUser.id) : false,
     }));
 
     res.json({ complaints: enriched, count: enriched.length });
@@ -125,14 +142,14 @@ apiRouter.get('/complaints/track/:reference', (req: Request, res: Response) => {
 
   const history = db.getComplaintHistory(complaint.id);
   const activeUser = req.user || resolveUserFromRequest(req);
-  const isOfficial = activeUser.role === 'official' || activeUser.role === 'admin';
+  const isOfficial = activeUser ? (activeUser.role === 'official' || activeUser.role === 'admin') : false;
   const notes = db.getComplaintNotes(complaint.id, isOfficial);
 
   res.json({
     complaint: {
       ...complaint,
-      hasUserVoted: db.hasUserVoted(complaint.id, activeUser.id),
-      isFollowing: db.isUserFollowing(complaint.id, activeUser.id),
+      hasUserVoted: activeUser ? db.hasUserVoted(complaint.id, activeUser.id) : false,
+      isFollowing: activeUser ? db.isUserFollowing(complaint.id, activeUser.id) : false,
     },
     history,
     notes,
@@ -150,14 +167,14 @@ apiRouter.get('/complaints/:id', (req: Request, res: Response) => {
 
   const history = db.getComplaintHistory(complaint.id);
   const activeUser = req.user || resolveUserFromRequest(req);
-  const isOfficial = activeUser.role === 'official' || activeUser.role === 'admin';
+  const isOfficial = activeUser ? (activeUser.role === 'official' || activeUser.role === 'admin') : false;
   const notes = db.getComplaintNotes(complaint.id, isOfficial);
 
   res.json({
     complaint: {
       ...complaint,
-      hasUserVoted: db.hasUserVoted(complaint.id, activeUser.id),
-      isFollowing: db.isUserFollowing(complaint.id, activeUser.id),
+      hasUserVoted: activeUser ? db.hasUserVoted(complaint.id, activeUser.id) : false,
+      isFollowing: activeUser ? db.isUserFollowing(complaint.id, activeUser.id) : false,
     },
     history,
     notes,
@@ -208,6 +225,9 @@ apiRouter.post('/complaints', (req: Request, res: Response) => {
     }
 
     const activeUser = req.user || resolveUserFromRequest(req);
+    if (!activeUser) {
+      return res.status(401).json({ error: 'Please sign in to submit a complaint.' });
+    }
 
     const created = db.createComplaint({
       title,
@@ -260,9 +280,8 @@ apiRouter.patch(
       return res.status(400).json({ error: 'Target status is required.' });
     }
 
-    const activeUser = req.user || resolveUserFromRequest(req);
-
     try {
+      const activeUser = getAuthenticatedUser(req);
       const result = lifecycleService.transitionStatus({
         complaintId: id,
         targetStatus: status,
@@ -320,6 +339,9 @@ apiRouter.post('/complaints/:id/acknowledge', (req: Request, res: Response) => {
   const { id } = req.params;
   const { notes } = req.body;
   const activeUser = req.user || resolveUserFromRequest(req);
+  if (!activeUser) {
+    return res.status(401).json({ error: 'Please sign in to acknowledge complaints.' });
+  }
 
   try {
     const updated = db.acknowledgeComplaint({
@@ -357,6 +379,9 @@ apiRouter.post('/complaints/:id/assign', (req: Request, res: Response) => {
   }
 
   const activeUser = req.user || resolveUserFromRequest(req);
+  if (!activeUser) {
+    return res.status(401).json({ error: 'Please sign in to assign tasks.' });
+  }
 
   try {
     const updated = db.assignWorkerAndBudget({
@@ -406,6 +431,9 @@ apiRouter.post('/complaints/:id/district-action', (req: Request, res: Response) 
   }
 
   const activeUser = req.user || resolveUserFromRequest(req);
+  if (!activeUser) {
+    return res.status(401).json({ error: 'Please sign in to apply district actions.' });
+  }
 
   try {
     const updated = db.districtIntervene({
@@ -441,7 +469,7 @@ apiRouter.post('/complaints/simulate-overdue', (req: Request, res: Response) => 
       category: req.body.category,
       address: req.body.address,
       daysAged: req.body.daysAged ? Number(req.body.daysAged) : 15,
-      actor: activeUser,
+      actor: activeUser || undefined,
     });
 
     res.status(201).json({
@@ -489,7 +517,7 @@ apiRouter.patch(
       return res.status(400).json({ error: 'An official justification note is required to override priority.' });
     }
 
-    const activeUser = req.user || resolveUserFromRequest(req);
+    const activeUser = getAuthenticatedUser(req);
     const updated = db.updatePriority({
       complaintId: id,
       priority,
@@ -521,7 +549,7 @@ apiRouter.patch(
       return res.status(400).json({ error: 'Target department is required.' });
     }
 
-    const activeUser = req.user || resolveUserFromRequest(req);
+    const activeUser = getAuthenticatedUser(req);
     const updated = db.updateAssignment({
       complaintId: id,
       department,
@@ -545,6 +573,9 @@ apiRouter.patch(
 apiRouter.post('/complaints/:id/votes', (req: Request, res: Response) => {
   const { id } = req.params;
   const activeUser = req.user || resolveUserFromRequest(req);
+  if (!activeUser) {
+    return res.status(401).json({ error: 'Please sign in to vote or endorse complaints.' });
+  }
 
   const result = db.voteComplaint({
     complaintId: id,
@@ -562,6 +593,9 @@ apiRouter.post('/complaints/:id/votes', (req: Request, res: Response) => {
 apiRouter.post('/complaints/:id/follow', (req: Request, res: Response) => {
   const { id } = req.params;
   const activeUser = req.user || resolveUserFromRequest(req);
+  if (!activeUser) {
+    return res.status(401).json({ error: 'Please sign in to follow complaints.' });
+  }
 
   const result = db.toggleFollow(id, {
     id: activeUser.id,
@@ -581,7 +615,7 @@ apiRouter.get('/complaints/:id/follow-status', (req: Request, res: Response) => 
   const { id } = req.params;
   const activeUser = req.user || resolveUserFromRequest(req);
 
-  const isFollowing = db.isUserFollowing(id, activeUser.id);
+  const isFollowing = activeUser ? db.isUserFollowing(id, activeUser.id) : false;
   const followersCount = db.getFollowersCount(id);
 
   res.json({
@@ -594,6 +628,9 @@ apiRouter.get('/complaints/:id/follow-status', (req: Request, res: Response) => 
 // Notifications list for active user
 apiRouter.get('/notifications', (req: Request, res: Response) => {
   const activeUser = req.user || resolveUserFromRequest(req);
+  if (!activeUser) {
+    return res.json({ success: true, notifications: [], unreadCount: 0 });
+  }
   const data = db.getNotifications(activeUser.id);
   res.json({
     success: true,
@@ -605,6 +642,9 @@ apiRouter.get('/notifications', (req: Request, res: Response) => {
 apiRouter.patch('/notifications/:id/read', (req: Request, res: Response) => {
   const { id } = req.params;
   const activeUser = req.user || resolveUserFromRequest(req);
+  if (!activeUser) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
   db.markNotificationRead(id, activeUser.id);
   res.json({ success: true, notificationId: id, read: true });
 });
@@ -612,6 +652,9 @@ apiRouter.patch('/notifications/:id/read', (req: Request, res: Response) => {
 // Mark all notifications read
 apiRouter.post('/notifications/mark-all-read', (req: Request, res: Response) => {
   const activeUser = req.user || resolveUserFromRequest(req);
+  if (!activeUser) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
   db.markAllNotificationsRead(activeUser.id);
   res.json({ success: true, message: 'All notifications marked as read.' });
 });
@@ -635,7 +678,7 @@ apiRouter.post(
       return res.status(400).json({ error: 'Note text cannot be empty.' });
     }
 
-    const activeUser = req.user || resolveUserFromRequest(req);
+    const activeUser = getAuthenticatedUser(req);
     const createdNote = db.addOfficialNote({
       complaintId: id,
       author: activeUser,
@@ -688,9 +731,8 @@ apiRouter.post(
       });
     }
 
-    const activeUser = req.user || resolveUserFromRequest(req);
-
     try {
+      const activeUser = getAuthenticatedUser(req);
       const updated = escalationEngine.recordMeaningfulAction({
         complaintId: id,
         actionType,
@@ -723,9 +765,8 @@ apiRouter.post(
     const { id } = req.params;
     const { reason, responsibleParty, nextReviewDate } = req.body;
 
-    const activeUser = req.user || resolveUserFromRequest(req);
-
     try {
+      const activeUser = getAuthenticatedUser(req);
       const updated = escalationEngine.recordBlocker({
         complaintId: id,
         actor: {
@@ -823,7 +864,7 @@ apiRouter.patch(
       return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
     }
 
-    const activeUser = req.user || resolveUserFromRequest(req);
+    const activeUser = getAuthenticatedUser(req);
     const now = new Date().toISOString();
 
     const existing = rawDb.prepare('SELECT * FROM escalations WHERE id = ?').get(id) as any;
@@ -891,7 +932,7 @@ apiRouter.post(
       return res.status(400).json({ error: 'canonicalComplaintId is required.' });
     }
 
-    const activeUser = req.user || resolveUserFromRequest(req);
+    const activeUser = getAuthenticatedUser(req);
     const link = duplicateService.linkDuplicate({
       complaintId: id,
       canonicalComplaintId,
@@ -909,7 +950,7 @@ apiRouter.post(
   requireRole('official', 'admin', 'SUPERVISOR', 'ADMIN'),
   (req: Request, res: Response) => {
     const { linkId } = req.params;
-    const activeUser = req.user || resolveUserFromRequest(req);
+    const activeUser = getAuthenticatedUser(req);
 
     try {
       const result = duplicateService.confirmDuplicate(linkId, activeUser.id);
@@ -929,7 +970,7 @@ apiRouter.post(
   (req: Request, res: Response) => {
     try {
       const { budgetLimit, crewCount, hoursPerCrew, department, category } = req.body;
-      const activeUser = req.user || resolveUserFromRequest(req);
+      const activeUser = getAuthenticatedUser(req);
 
       const plan = planningService.generatePlan({
         budgetLimit: Number(budgetLimit) || 15000,
@@ -984,9 +1025,9 @@ apiRouter.post('/complaints/:id/evidence', (req: Request, res: Response) => {
   // Strip possible dataURL prefix
   const base64Data = fileBase64.replace(/^data:image\/\w+;base64,/, '');
   const buffer = Buffer.from(base64Data, 'base64');
-  const activeUser = req.user || resolveUserFromRequest(req);
 
   try {
+    const activeUser = getAuthenticatedUser(req);
     const saved = evidenceService.saveEvidence({
       complaintId: id,
       evidenceType: evidenceType === 'resolution' ? 'resolution' : 'initial',
@@ -1027,9 +1068,8 @@ apiRouter.post(
       return res.status(400).json({ error: 'Decision must be either "verified" or "rejected".' });
     }
 
-    const activeUser = req.user || resolveUserFromRequest(req);
-
     try {
+      const activeUser = getAuthenticatedUser(req);
       const result = evidenceService.verifyEvidence({
         evidenceId: id,
         decision,
@@ -1058,9 +1098,8 @@ apiRouter.post('/complaints/:id/reopen', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'An explanation of at least 5 characters is required to reopen.' });
   }
 
-  const activeUser = req.user || resolveUserFromRequest(req);
-
   try {
+    const activeUser = getAuthenticatedUser(req);
     const result = lifecycleService.transitionStatus({
       complaintId: id,
       targetStatus: 'Reopened',
@@ -1133,8 +1172,8 @@ apiRouter.post('/reset-demo-data', (_req: Request, res: Response) => {
   const fresh = db.resetToSeed();
   res.json({
     success: true,
-    message: 'Demo dataset reset to initial 16 verified complaints, audit history, and demo accounts.',
-    complaintsCount: fresh.complaints.length,
+    message: 'Database wiped clean. 0 complaints and 0 users.',
+    complaintsCount: 0,
   });
 });
 
@@ -1274,5 +1313,126 @@ apiRouter.get('/tiles/carto/:style/:z/:x/:y', async (req: Request, res: Response
   } catch (err: any) {
     console.error('CARTO tile proxy error:', err.message);
     return res.status(502).send('Error proxying CARTO tile');
+  }
+});
+
+// ==========================================
+// 13. ON-DEMAND WASTE MANAGEMENT & PICKUP BOOKING
+// ==========================================
+apiRouter.get('/waste-pickups/stats', (_req: Request, res: Response) => {
+  const stats = wastePickupService.getStats();
+  res.json({ success: true, stats });
+});
+
+apiRouter.get('/waste-pickups', (req: Request, res: Response) => {
+  const user = req.user || resolveUserFromRequest(req);
+  const { status, search } = req.query;
+
+  const isOfficialOrAdmin = user && (user.role === 'official' || user.role === 'admin');
+  const userId = isOfficialOrAdmin ? undefined : user?.id;
+
+  const pickups = wastePickupService.listPickups({
+    userId,
+    status: status as string,
+    search: search as string,
+  });
+
+  res.json({ success: true, pickups, count: pickups.length });
+});
+
+apiRouter.get('/waste-pickups/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const pickup = wastePickupService.getPickupById(id);
+  if (!pickup) {
+    return res.status(404).json({ error: 'Waste pickup booking not found' });
+  }
+  res.json({ success: true, pickup });
+});
+
+apiRouter.post('/waste-pickups', (req: Request, res: Response) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const {
+      wasteType,
+      estimatedWeight,
+      pickupDate,
+      timeSlot,
+      address,
+      locality,
+      pincode,
+      specialInstructions,
+      imageUrl,
+      contactPhone,
+    } = req.body;
+
+    if (!wasteType || !pickupDate || !timeSlot || !address || !locality) {
+      return res.status(400).json({
+        error: 'Missing required fields: wasteType, pickupDate, timeSlot, address, and locality are required.',
+      });
+    }
+
+    const booking = wastePickupService.createPickup({
+      userId: user.id,
+      userName: user.name,
+      userPhone: contactPhone || '9876543210',
+      userEmail: user.email,
+      wasteType,
+      estimatedWeight,
+      pickupDate,
+      timeSlot,
+      address,
+      locality,
+      pincode,
+      specialInstructions,
+      imageUrl,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Waste collection scheduled successfully.',
+      pickup: booking,
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to book waste collection.' });
+  }
+});
+
+apiRouter.patch('/waste-pickups/:id/status', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status, assignedCrew, assignedVehicle, notes } = req.body;
+
+    if (!status) {
+      return res.status(400).json({ error: 'Status is required' });
+    }
+
+    const updated = wastePickupService.updateStatus(id, {
+      status,
+      assignedCrew,
+      assignedVehicle,
+      notes,
+    });
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Waste pickup not found' });
+    }
+
+    res.json({ success: true, pickup: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to update pickup status' });
+  }
+});
+
+apiRouter.post('/waste-pickups/:id/cancel', (req: Request, res: Response) => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const { id } = req.params;
+    const result = wastePickupService.cancelPickup(id, user.role === 'admin' ? undefined : user.id);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to cancel waste pickup' });
   }
 });
