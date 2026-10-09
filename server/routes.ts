@@ -2,6 +2,7 @@ import express, { Request, Response, Router } from 'express';
 import { db, User } from './db.ts';
 import { db as rawDb } from './db/connection.ts';
 import { calculatePriorityScore, ComplaintCategory, PriorityLevel } from './services/priorityService.ts';
+import { verifyAndTriageReport } from './services/aiVerificationEngine.ts';
 import { authService, SystemRole } from './services/authService.ts';
 import { lifecycleService } from './services/lifecycleService.ts';
 import { escalationEngine } from './services/escalationEngine.ts';
@@ -166,8 +167,34 @@ apiRouter.get('/complaints/:id/timeline', (req: Request, res: Response) => {
   res.json({ complaintId: complaint.id, reference: complaint.reference, timeline: history });
 });
 
-// Create new civic complaint
-apiRouter.post('/complaints', (req: Request, res: Response) => {
+// Real-time AI verification & triage preview for citizens as they report
+apiRouter.post('/complaints/verify', async (req: Request, res: Response) => {
+  try {
+    const { title, description, category, address, locality, latitude, longitude, imageUrl, safetyRisk } = req.body;
+    const existingComplaints = db.getComplaints();
+
+    const verification = await verifyAndTriageReport({
+      title: title || 'Report draft',
+      description: description || 'Draft report description',
+      category: (category as ComplaintCategory) || 'road_damage',
+      address: address || 'Metro District',
+      locality,
+      latitude: typeof latitude === 'number' ? latitude : null,
+      longitude: typeof longitude === 'number' ? longitude : null,
+      imageUrl,
+      safetyRisk: Boolean(safetyRisk),
+      existingComplaints,
+    });
+
+    res.json({ success: true, verification });
+  } catch (err: any) {
+    console.error('Error during AI verification:', err);
+    res.status(500).json({ error: 'AI verification failed', details: err.message });
+  }
+});
+
+// Create new civic complaint with automated AI credibility verification & severity triage
+apiRouter.post('/complaints', async (req: Request, res: Response) => {
   try {
     const { title, description, category, address, locality, latitude, longitude, imageUrl, safetyRisk } = req.body;
 
@@ -185,6 +212,21 @@ apiRouter.post('/complaints', (req: Request, res: Response) => {
     }
 
     const activeUser = req.user || resolveUserFromRequest(req);
+    const existingComplaints = db.getComplaints();
+
+    // Run AI verification and triage
+    const aiVerification = await verifyAndTriageReport({
+      title,
+      description,
+      category: category as ComplaintCategory,
+      address,
+      locality: locality || 'Metro District',
+      latitude: typeof latitude === 'number' ? latitude : null,
+      longitude: typeof longitude === 'number' ? longitude : null,
+      imageUrl: imageUrl || undefined,
+      safetyRisk: Boolean(safetyRisk),
+      existingComplaints,
+    });
 
     const created = db.createComplaint({
       title,
@@ -198,11 +240,13 @@ apiRouter.post('/complaints', (req: Request, res: Response) => {
       safetyRisk: Boolean(safetyRisk),
       reporterId: activeUser.id,
       reporterName: activeUser.name,
+      aiVerification,
     });
 
     res.status(201).json({
       success: true,
       complaint: created,
+      verification: aiVerification,
       message: `Civic complaint successfully registered with Reference ID ${created.reference}.`,
     });
   } catch (err: any) {

@@ -19,6 +19,7 @@ import { Complaint, ComplaintHistoryEntry, OfficialNote } from '../types';
 import { StatusBadge } from '../components/StatusBadge';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { Timeline } from '../components/Timeline';
+import { AIVerificationCard } from '../components/AIVerificationCard';
 import { useAuth } from '../context/AuthContext';
 
 interface Props {
@@ -309,6 +310,16 @@ export const TrackIssuePage: React.FC<Props> = ({ initialReference = '', onExplo
                 </div>
               </div>
             </div>
+
+            {/* AI Forensics & Severity Triage Result */}
+            {complaint.aiVerification && (
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  Automated AI Credibility &amp; Severity Audit
+                </span>
+                <AIVerificationCard verification={complaint.aiVerification} />
+              </div>
+            )}
 
             {/* Official Resolution Summary (if resolved) */}
             {complaint.resolutionSummary && (

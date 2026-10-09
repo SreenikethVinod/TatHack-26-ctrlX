@@ -3,6 +3,7 @@ import { db as databaseConnection } from './db/connection.ts';
 import { runMigrations } from './db/migrator.ts';
 import { seedDatabase } from './db/seed.ts';
 import { calculatePriorityScore, PriorityLevel, ComplaintCategory } from './services/priorityService.ts';
+import { AIVerificationResult } from '../src/types/index.ts';
 import { lifecycleService } from './services/lifecycleService.ts';
 import { analyticsService } from './services/analyticsService.ts';
 import { authService, AuthService, UserResponse, FrontendRole } from './services/authService.ts';
@@ -92,6 +93,7 @@ export interface Complaint {
   isBlocked?: boolean;
   blockerReason?: string | null;
   maintenanceIssueId?: string | null;
+  aiVerification?: AIVerificationResult;
 }
 
 export const DEPARTMENTS = [
@@ -118,6 +120,17 @@ function formatComplaintRow(row: any): Complaint {
     parsedRationale = JSON.parse(row.priority_rationale || '[]');
   } catch {
     parsedRationale = [];
+  }
+
+  let parsedAiVerification: AIVerificationResult | undefined;
+  if (row.ai_verification) {
+    try {
+      parsedAiVerification = typeof row.ai_verification === 'string'
+        ? JSON.parse(row.ai_verification)
+        : row.ai_verification;
+    } catch {
+      parsedAiVerification = undefined;
+    }
   }
 
   return {
@@ -155,6 +168,7 @@ function formatComplaintRow(row: any): Complaint {
     isBlocked: Boolean(row.is_blocked),
     blockerReason: row.blocker_reason || null,
     maintenanceIssueId: row.maintenance_issue_id || null,
+    aiVerification: parsedAiVerification,
   };
 }
 
@@ -244,6 +258,7 @@ export class DatabaseRepository {
     safetyRisk: boolean;
     reporterId: string;
     reporterName: string;
+    aiVerification?: AIVerificationResult;
   }): Complaint {
     const countRow = this.db.prepare('SELECT count(*) as c FROM complaints').get() as { c: number };
     const count = countRow.c + 1;
@@ -275,6 +290,10 @@ export class DatabaseRepository {
     }
 
     // Transparent prioritization calculation
+    let assignedPriority: PriorityLevel;
+    let assignedSlaHours: number;
+    const finalRationale: string[] = [];
+
     const recommendation = calculatePriorityScore({
       category: params.category,
       safetyRisk: params.safetyRisk,
@@ -283,7 +302,32 @@ export class DatabaseRepository {
       status: 'Submitted',
       address: params.address,
       locality: params.locality,
+      explicitSeverity: params.aiVerification?.severityScore,
     });
+
+    assignedPriority = recommendation.recommendedPriority;
+    assignedSlaHours = recommendation.slaHours;
+    finalRationale.push(...recommendation.rationale);
+
+    // Integrate AI visual verification and severity triage
+    if (params.aiVerification) {
+      if (params.aiVerification.visualSeverity === 'Critical' && assignedPriority !== 'Critical') {
+        assignedPriority = 'Critical';
+        assignedSlaHours = 24;
+        finalRationale.unshift('AI Visual Forensics: Critical hazard detected from uploaded evidence (+Critical SLA Upgrade)');
+      } else if (
+        params.aiVerification.visualSeverity === 'High' &&
+        (assignedPriority === 'Low' || assignedPriority === 'Medium')
+      ) {
+        assignedPriority = 'High';
+        assignedSlaHours = 48;
+        finalRationale.unshift('AI Visual Forensics: High municipal hazard level verified (+High Priority Upgrade)');
+      }
+
+      if (params.aiVerification.fraudFlag) {
+        finalRationale.unshift(`AI Security Alert: Flagged for verification check (${params.aiVerification.fraudReason})`);
+      }
+    }
 
     // Deadlines: 24h acknowledgement deadline
     const ackDeadline = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -299,12 +343,14 @@ export class DatabaseRepository {
             id, reference, title, description, category, address, locality, latitude, longitude,
             image_url, status, priority, system_recommended_priority, priority_rationale,
             priority_score, safety_risk, assigned_department, reporter_id, reporter_name,
-            created_at, updated_at, votes_count, sla_hours, ack_deadline, next_action_deadline
+            created_at, updated_at, votes_count, sla_hours, ack_deadline, next_action_deadline,
+            ai_verification
           ) VALUES (
             ?, ?, ?, ?, ?, ?, ?, ?, ?,
             ?, 'Submitted', ?, ?, ?,
             ?, ?, ?, ?, ?,
-            ?, ?, 1, ?, ?, ?
+            ?, ?, 1, ?, ?, ?,
+            ?
           )`
         )
         .run(
@@ -318,9 +364,9 @@ export class DatabaseRepository {
           params.latitude ?? null,
           params.longitude ?? null,
           params.imageUrl || null,
+          assignedPriority,
           recommendation.recommendedPriority,
-          recommendation.recommendedPriority,
-          JSON.stringify(recommendation.rationale),
+          JSON.stringify(finalRationale),
           recommendation.score,
           params.safetyRisk ? 1 : 0,
           assignedDepartment,
@@ -328,9 +374,10 @@ export class DatabaseRepository {
           params.reporterName,
           now,
           now,
-          recommendation.slaHours,
+          assignedSlaHours,
           ackDeadline,
-          nextActionDeadline
+          nextActionDeadline,
+          params.aiVerification ? JSON.stringify(params.aiVerification) : null
         );
 
       this.db
@@ -338,13 +385,16 @@ export class DatabaseRepository {
           `INSERT INTO complaint_history (
             id, complaint_id, previous_status, new_status, event_type,
             actor_id, actor_name, actor_role, public_update, deadline_info, timestamp
-          ) VALUES (?, ?, 'None', 'Submitted', 'SUBMITTED', ?, ?, 'Citizen', 'Complaint registered into CivicPulse municipal queue.', ?, ?)`
+          ) VALUES (?, ?, 'None', 'Submitted', 'SUBMITTED', ?, ?, 'Citizen', ?, ?, ?)`
         )
         .run(
           historyId,
           id,
           params.reporterId,
           params.reporterName,
+          params.aiVerification
+            ? `Complaint registered with AI Forensics & Severity Triage (Authenticity: ${params.aiVerification.authenticityScore}%, Triage: ${assignedPriority}).`
+            : 'Complaint registered into CivicPulse municipal queue.',
           `Acknowledgement Deadline: ${ackDeadline}`,
           now
         );

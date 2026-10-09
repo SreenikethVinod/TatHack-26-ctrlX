@@ -209,13 +209,15 @@ export function seedDatabase(database: Database.Database = db) {
         image_url, after_image_url, status, priority, system_recommended_priority, priority_rationale,
         priority_score, safety_risk, assigned_department, reporter_id, reporter_name, created_at,
         updated_at, resolved_at, resolution_summary, votes_count, sla_hours,
-        ack_deadline, acknowledged_at, next_action_deadline, last_action_at, inactivity_cycle
+        ack_deadline, acknowledged_at, next_action_deadline, last_action_at, inactivity_cycle,
+        ai_verification
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?,
+        ?
       )
     `);
 
@@ -241,6 +243,69 @@ export function seedDatabase(database: Database.Database = db) {
       const nextActionDeadline = isAcknowledged
         ? new Date(createdDate.getTime() + (c.slaHours || 72) * 60 * 60 * 1000).toISOString()
         : ackDeadline;
+
+      let aiVerification = c.aiVerification;
+      if (!aiVerification && c.imageUrl) {
+        if (c.reference === 'CP-2026-001') {
+          aiVerification = {
+            isAuthentic: true,
+            authenticityScore: 98,
+            isRelevant: true,
+            relevanceScore: 96,
+            aiGeneratedProbability: 2,
+            detectedObjects: ['deep asphalt pothole', 'sub-base aggregate erosion', 'school crosswalk marker'],
+            visualSeverity: 'Critical',
+            severityScore: 92,
+            severityRationale: [
+              'Direct vehicular collision hazard in high-density school corridor.',
+              'Pothole depth (>6 inches) presents acute axle damage and cyclist overturn risk.',
+              'Corroborated by 3 nearby citizen reports within 400m.',
+            ],
+            corroboratingReportsCount: 3,
+            spatialClusterInfo: 'Corroborated by 3 nearby road damage reports within a 400m school zone radius.',
+            fraudFlag: false,
+            verdict: 'VERIFIED_REAL',
+            analyzedAt: c.createdAt,
+          };
+        } else if (c.reference === 'CP-2026-002') {
+          aiVerification = {
+            isAuthentic: true,
+            authenticityScore: 95,
+            isRelevant: true,
+            relevanceScore: 94,
+            aiGeneratedProbability: 4,
+            detectedObjects: ['overflowing waste bins', 'rotting commercial refuse', 'pedestrian pathway encroachment'],
+            visualSeverity: 'High',
+            severityScore: 78,
+            severityRationale: [
+              'Vector-borne health risk in active public produce market.',
+              'Sidewalk blockage forcing pedestrians onto roadway.',
+            ],
+            corroboratingReportsCount: 2,
+            spatialClusterInfo: 'Corroborated by 2 nearby sanitation reports in Downtown Commercial district.',
+            fraudFlag: false,
+            verdict: 'VERIFIED_REAL',
+            analyzedAt: c.createdAt,
+          };
+        } else {
+          aiVerification = {
+            isAuthentic: true,
+            authenticityScore: 92,
+            isRelevant: true,
+            relevanceScore: 90,
+            aiGeneratedProbability: 5,
+            detectedObjects: ['infrastructure element', 'street surface'],
+            visualSeverity: c.priority || 'Medium',
+            severityScore: pScore.score,
+            severityRationale: pScore.rationale,
+            corroboratingReportsCount: 1,
+            spatialClusterInfo: 'Corroborated by nearby district telemetry.',
+            fraudFlag: false,
+            verdict: 'VERIFIED_REAL',
+            analyzedAt: c.createdAt,
+          };
+        }
+      }
 
       insertComplaint.run(
         c.id,
@@ -273,7 +338,8 @@ export function seedDatabase(database: Database.Database = db) {
         ackAt,
         nextActionDeadline,
         ackAt || c.createdAt,
-        0
+        0,
+        aiVerification ? JSON.stringify(aiVerification) : null
       );
     }
 
